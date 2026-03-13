@@ -3,12 +3,16 @@ package dungeonexplorer.ui;
 import dungeonexplorer.map.GameMap;
 import dungeonexplorer.util.Constants;
 import java.awt.*;
+import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.InputStream;
 import java.util.Random;
+import javax.imageio.ImageIO;
 
 /**
  * Renders the cave platformer map with camera offset.
- * Solid tiles have detailed rock textures. Empty tiles show a
- * distant cave wall background, giving depth to the cave system.
+ * Uses a single stone texture for all solid tiles (normal color)
+ * and a darkened version for the background behind empty tiles.
  */
 public class MapRenderer {
     private int glowTimer = 0;
@@ -16,7 +20,99 @@ public class MapRenderer {
     private final Random rng = new Random(42);
     private boolean initialized = false;
 
-    public MapRenderer() {}
+    // Single tile image for everything
+    private BufferedImage tileStone;      // Normal color - for solid tiles (chao)
+    private BufferedImage tileStoneDark;   // Darkened - for background (fundo)
+    private boolean imageLoaded = false;
+
+    // Decoration overlay (mineral/gems)
+    private BufferedImage tileDecoration;      // Normal color - for solid tiles
+    private BufferedImage tileDecorationDark;  // Darkened - for background
+    private boolean decorationLoaded = false;
+
+    public MapRenderer() {
+        loadTileImage();
+    }
+
+    /**
+     * Load the single tile image. Falls back to procedural rendering if not found.
+     */
+    private void loadTileImage() {
+        try {
+            // Try loading from classpath first (resources)
+            InputStream stream = getClass().getResourceAsStream("/tiles/chao_pedra.png");
+
+            if (stream != null) {
+                tileStone = ImageIO.read(stream);
+                stream.close();
+            } else {
+                // Fallback: try loading from file path
+                File file = new File("src/main/resources/tiles/chao_pedra.png");
+                if (file.exists()) {
+                    tileStone = ImageIO.read(file);
+                }
+            }
+
+            // Create darkened version for background
+            if (tileStone != null) {
+                int ts = Constants.TILE_SIZE;
+                tileStoneDark = new BufferedImage(ts, ts, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D gd = tileStoneDark.createGraphics();
+                gd.drawImage(tileStone, 0, 0, null);
+                // Dark overlay to make it look like a distant cave wall
+                gd.setColor(new Color(0, 0, 0, 150));
+                gd.fillRect(0, 0, ts, ts);
+                gd.dispose();
+                imageLoaded = true;
+            }
+
+            if (imageLoaded) {
+                System.out.println("[MapRenderer] Tile image loaded successfully.");
+            } else {
+                System.out.println("[MapRenderer] Tile image not found, using procedural rendering.");
+            }
+
+            // Load decoration image (mineral/gems)
+            InputStream decoStream = getClass().getResourceAsStream("/tiles/decoracao.png");
+            BufferedImage decoRaw = null;
+            if (decoStream != null) {
+                decoRaw = ImageIO.read(decoStream);
+                decoStream.close();
+            } else {
+                File decoFile = new File("src/main/resources/tiles/decoracao.png");
+                if (decoFile.exists()) {
+                    decoRaw = ImageIO.read(decoFile);
+                }
+            }
+
+            if (decoRaw != null) {
+                int ts = Constants.TILE_SIZE;
+                // Resize to tile size if needed
+                tileDecoration = new BufferedImage(ts, ts, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D gDeco = tileDecoration.createGraphics();
+                gDeco.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                gDeco.drawImage(decoRaw, 0, 0, ts, ts, null);
+                gDeco.dispose();
+
+                // Create darkened version for background
+                tileDecorationDark = new BufferedImage(ts, ts, BufferedImage.TYPE_INT_ARGB);
+                Graphics2D gDecoDark = tileDecorationDark.createGraphics();
+                gDecoDark.drawImage(tileDecoration, 0, 0, null);
+                gDecoDark.setColor(new Color(0, 0, 0, 150));
+                gDecoDark.fillRect(0, 0, ts, ts);
+                gDecoDark.dispose();
+
+                decorationLoaded = true;
+                System.out.println("[MapRenderer] Decoration image loaded successfully.");
+            } else {
+                System.out.println("[MapRenderer] Decoration image not found, skipping.");
+            }
+
+        } catch (Exception e) {
+            System.err.println("[MapRenderer] Error loading tile image: " + e.getMessage());
+            imageLoaded = false;
+        }
+    }
 
     public void init(int rows, int cols) {
         rockNoise = new int[rows][cols];
@@ -82,49 +178,104 @@ public class MapRenderer {
     }
 
     /**
-     * Render a distant cave wall behind empty tiles to give depth.
+     * Render background behind empty tiles using darkened stone texture.
      */
     private void renderCaveBackground(Graphics2D g, int x, int y, int r, int c) {
         int s = Constants.TILE_SIZE;
-        int noise = rockNoise[r][c];
 
-        // Distant cave wall (darker than foreground rock)
-        int bgR = 28 + noise / 4;
-        int bgG = 22 + noise / 5;
-        int bgB = 18 + noise / 6;
-        g.setColor(new Color(clamp(bgR), clamp(bgG), clamp(bgB)));
-        g.fillRect(x, y, s, s);
+        if (tileStoneDark != null) {
+            // Darkened stone image as background
+            g.drawImage(tileStoneDark, x, y, null);
+            // Decoration overlay on background (different hash offset so it doesn't always match floor)
+            if (decorationLoaded && isDecorationTileBg(r, c)) {
+                g.drawImage(tileDecorationDark, x, y, null);
+            }
+        } else {
+            // Fallback: procedural background
+            int noise = rockNoise[r][c];
+            int bgR = 28 + noise / 4;
+            int bgG = 22 + noise / 5;
+            int bgB = 18 + noise / 6;
+            g.setColor(new Color(clamp(bgR), clamp(bgG), clamp(bgB)));
+            g.fillRect(x, y, s, s);
 
-        // Subtle rock texture in background
-        g.setColor(new Color(clamp(bgR + 6), clamp(bgG + 4), clamp(bgB + 3)));
-        int px = (r * 5 + c * 9) % (s - 4) + 2;
-        int py = (r * 9 + c * 3) % (s - 4) + 2;
-        g.fillOval(x + px, y + py, 3, 2);
+            g.setColor(new Color(clamp(bgR + 6), clamp(bgG + 4), clamp(bgB + 3)));
+            int px = (r * 5 + c * 9) % (s - 4) + 2;
+            int py = (r * 9 + c * 3) % (s - 4) + 2;
+            g.fillOval(x + px, y + py, 3, 2);
 
-        // Occasional darker spot (deep shadow)
-        if ((r * 7 + c * 11) % 13 == 0) {
-            g.setColor(new Color(clamp(bgR - 8), clamp(bgG - 6), clamp(bgB - 5)));
-            int dx = (r * 3 + c * 7) % (s - 8) + 4;
-            int dy = (r * 11 + c * 5) % (s - 8) + 4;
-            g.fillOval(x + dx, y + dy, 5, 4);
+            if ((r * 7 + c * 11) % 13 == 0) {
+                g.setColor(new Color(clamp(bgR - 8), clamp(bgG - 6), clamp(bgB - 5)));
+                int dx = (r * 3 + c * 7) % (s - 8) + 4;
+                int dy = (r * 11 + c * 5) % (s - 8) + 4;
+                g.fillOval(x + dx, y + dy, 5, 4);
+            }
         }
-
-        // Stalactite hints hanging from ceiling (if solid above)
-        // This is checked in the foreground rendering instead
     }
 
+    /**
+     * Render solid tile using the stone texture at normal color.
+     */
     private void renderSolidTile(Graphics2D g, int x, int y, int r, int c, GameMap map) {
+        int s = Constants.TILE_SIZE;
+
+        if (imageLoaded) {
+            // Draw stone texture at normal color
+            g.drawImage(tileStone, x, y, null);
+        } else {
+            // Fallback: procedural rock rendering
+            renderSolidTileProcedural(g, x, y, r, c);
+        }
+
+        // Decoration overlay on ~12% of solid tiles, spaced apart
+        if (decorationLoaded && isDecorationTile(r, c)) {
+            g.drawImage(tileDecoration, x, y, null);
+        }
+
+        // Edge detection for visual borders (drawn over the image)
+        boolean emptyAbove = r > 0 && !map.isSolid(r - 1, c);
+        boolean emptyBelow = r < map.getRows() - 1 && !map.isSolid(r + 1, c);
+        boolean emptyLeft = c > 0 && !map.isSolid(r, c - 1);
+        boolean emptyRight = c < map.getCols() - 1 && !map.isSolid(r, c + 1);
+
+        // Top surface edge
+        if (emptyAbove) {
+            g.setColor(new Color(40, 55, 30, 180));
+            g.fillRect(x, y, s, 2);
+        }
+
+        // Bottom edge (shadow)
+        if (emptyBelow) {
+            g.setColor(new Color(20, 15, 10, 150));
+            g.fillRect(x, y + s - 2, s, 2);
+        }
+
+        // Side shadows
+        if (emptyLeft) {
+            g.setColor(new Color(15, 10, 5, 120));
+            g.drawLine(x, y, x, y + s - 1);
+            g.drawLine(x + 1, y, x + 1, y + s - 1);
+        }
+        if (emptyRight) {
+            g.setColor(new Color(15, 10, 5, 120));
+            g.drawLine(x + s - 1, y, x + s - 1, y + s - 1);
+            g.drawLine(x + s - 2, y, x + s - 2, y + s - 1);
+        }
+    }
+
+    /**
+     * Fallback procedural rock rendering when image is not available.
+     */
+    private void renderSolidTileProcedural(Graphics2D g, int x, int y, int r, int c) {
         int s = Constants.TILE_SIZE;
         int noise = rockNoise[r][c];
 
-        // Base rock color with variation
         int baseR = Constants.COLOR_WALL.getRed() + noise;
         int baseG = Constants.COLOR_WALL.getGreen() + noise / 2;
         int baseB = Constants.COLOR_WALL.getBlue() + noise / 3;
         g.setColor(new Color(clamp(baseR), clamp(baseG), clamp(baseB)));
         g.fillRect(x, y, s, s);
 
-        // Rock texture: cracks and lines
         g.setColor(Constants.COLOR_WALL_HIGHLIGHT);
         int crackSeed = (r * 31 + c * 17) % 7;
         switch (crackSeed) {
@@ -147,60 +298,10 @@ public class MapRenderer {
                 break;
         }
 
-        // Small speckles
         g.setColor(new Color(clamp(baseR + 15), clamp(baseG + 10), clamp(baseB + 8)));
         int speckX = (r * 7 + c * 13) % (s - 6) + 3;
         int speckY = (r * 11 + c * 5) % (s - 6) + 3;
         g.fillOval(x + speckX, y + speckY, 3, 2);
-
-        // Edge detection for visual borders
-        boolean emptyAbove = r > 0 && !map.isSolid(r - 1, c);
-        boolean emptyBelow = r < map.getRows() - 1 && !map.isSolid(r + 1, c);
-        boolean emptyLeft = c > 0 && !map.isSolid(r, c - 1);
-        boolean emptyRight = c < map.getCols() - 1 && !map.isSolid(r, c + 1);
-
-        // Top surface edge (grass/moss hint on exposed surfaces)
-        if (emptyAbove) {
-            // Darker top line
-            g.setColor(new Color(55, 75, 40));
-            g.fillRect(x, y, s, 2);
-            // Small grass/moss tufts
-            g.setColor(new Color(65, 90, 45));
-            for (int i = 0; i < s; i += 5) {
-                int grassH = 1 + (r * 3 + c * 5 + i) % 3;
-                g.drawLine(x + i, y, x + i, y - grassH);
-            }
-        }
-
-        // Bottom edge (darker shadow)
-        if (emptyBelow) {
-            g.setColor(new Color(40, 30, 20));
-            g.fillRect(x, y + s - 2, s, 2);
-        }
-
-        // Side shadows
-        g.setColor(new Color(30, 22, 15));
-        if (emptyLeft) {
-            g.drawLine(x, y, x, y + s - 1);
-            g.drawLine(x + 1, y, x + 1, y + s - 1);
-        }
-        if (emptyRight) {
-            g.drawLine(x + s - 1, y, x + s - 1, y + s - 1);
-            g.drawLine(x + s - 2, y, x + s - 2, y + s - 1);
-        }
-
-        // Occasional mineral vein (gold/copper in the rock)
-        if ((r + c) % 11 == 0) {
-            g.setColor(new Color(120, 100, 50, 80));
-            g.drawLine(x + 2, y + s / 3, x + s - 2, y + s / 3 + 4);
-        }
-        // Occasional crystal embedded in rock
-        if ((r * 7 + c * 13) % 31 == 0) {
-            g.setColor(new Color(100, 180, 200, 60));
-            int cx = x + (r * 3 + c * 7) % (s - 8) + 4;
-            int cy = y + (r * 7 + c * 3) % (s - 8) + 4;
-            g.fillOval(cx, cy, 4, 3);
-        }
     }
 
     private void renderGoldBar(Graphics2D g, int x, int y) {
@@ -208,21 +309,17 @@ public class MapRenderer {
         int cx = x + s / 2;
         int cy = y + s / 2;
 
-        // Glow
         float glowIntensity = 0.3f + 0.2f * (float) Math.sin(glowTimer * 0.05 + x * 0.01);
         int alpha = (int) (glowIntensity * 80);
         g.setColor(new Color(255, 200, 50, Math.max(0, Math.min(255, alpha))));
         g.fillOval(cx - 8, cy - 6, 16, 12);
 
-        // Gold bar shape
         g.setColor(Constants.COLOR_GOLD);
         g.fillRoundRect(cx - 6, cy - 3, 12, 7, 2, 2);
 
-        // Darker edge
         g.setColor(new Color(200, 150, 30));
         g.drawRoundRect(cx - 6, cy - 3, 12, 7, 2, 2);
 
-        // Shine highlight
         g.setColor(new Color(255, 240, 150));
         g.fillRect(cx - 4, cy - 2, 4, 2);
     }
@@ -300,6 +397,35 @@ public class MapRenderer {
             g.setColor(new Color(110, 90, 40));
             g.fillRect(cx - 1, y + s / 2 + 3, 2, 3);
         }
+    }
+
+    /**
+     * Determines if a solid tile should show the decoration overlay (~12%).
+     * Uses deterministic hash so it's consistent across frames.
+     * Ensures decorations don't cluster (no two adjacent decorations).
+     */
+    private boolean isDecorationTile(int r, int c) {
+        int hash = (r * 31 + c * 17 + 7) % 100;
+        if (hash >= 5) return false; // ~5% chance (reduced from 12%)
+        // Avoid clustering: check if any neighbor would also be decoration
+        int hashUp = ((r - 1) * 31 + c * 17 + 7) % 100;
+        int hashLeft = (r * 31 + (c - 1) * 17 + 7) % 100;
+        if (hashUp < 5 || hashLeft < 5) return false;
+        return true;
+    }
+
+    /**
+     * Determines if a background tile should show the decoration overlay (~10%).
+     * Uses a different hash offset so floor and background decorations don't always align.
+     */
+    private boolean isDecorationTileBg(int r, int c) {
+        int hash = (r * 23 + c * 41 + 13) % 100;
+        if (hash >= 3) return false; // ~3% chance (reduced from 10%)
+        // Avoid clustering
+        int hashUp = ((r - 1) * 23 + c * 41 + 13) % 100;
+        int hashLeft = (r * 23 + (c - 1) * 41 + 13) % 100;
+        if (hashUp < 3 || hashLeft < 3) return false;
+        return true;
     }
 
     private int clamp(int value) {

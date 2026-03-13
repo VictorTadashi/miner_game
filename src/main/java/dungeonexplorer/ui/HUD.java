@@ -40,30 +40,30 @@ public class HUD {
 
         // Lives (helmet icons)
         g.setColor(Constants.COLOR_TEXT);
-        g.drawString("LIVES", 160, 18);
+        g.drawString("LIVES", 105, 18);
         for (int i = 0; i < player.getLives(); i++) {
-            Player.drawMiniHelmet(g, 160 + i * 22, 24);
+            Player.drawMiniHelmet(g, 105 + i * 22, 24);
         }
 
         // Level
         g.setColor(Constants.COLOR_TEXT);
-        g.drawString("DEPTH", 300, 18);
+        g.drawString("DEPTH", 195, 18);
         g.setColor(new Color(200, 180, 140));
-        g.drawString(String.valueOf(level), 300, 38);
+        g.drawString(String.valueOf(level), 195, 38);
 
         // Gold bar progress
         g.setColor(Constants.COLOR_TEXT);
-        g.drawString("GOLD", 400, 18);
+        g.drawString("GOLD", 260, 18);
         int collected = map.getCollectedGold();
         int total = map.getTotalGold();
         Color progressColor = map.isExitOpen() ? new Color(100, 255, 100) : Constants.COLOR_GOLD;
         g.setColor(progressColor);
-        g.drawString(collected + "/" + total, 400, 38);
+        g.drawString(collected + "/" + total, 260, 38);
 
         // Progress bar
-        int barX = 460;
+        int barX = 315;
         int barY = 28;
-        int barW = 120;
+        int barW = 90;
         int barH = 10;
         g.setColor(new Color(50, 40, 30));
         g.fillRect(barX, barY, barW, barH);

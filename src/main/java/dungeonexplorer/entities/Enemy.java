@@ -3,6 +3,7 @@ package dungeonexplorer.entities;
 import dungeonexplorer.map.GameMap;
 import dungeonexplorer.util.Constants;
 import java.awt.*;
+import java.util.Random;
 
 /**
  * Cave monster enemy for side-scrolling platformer.
@@ -24,6 +25,12 @@ public class Enemy extends Entity {
     private boolean patrolling;
     private double chaseRange;
 
+    // Jump AI
+    private int jumpCooldown;
+    private static final int JUMP_COOLDOWN_FRAMES = 90;
+    private static final double ENEMY_JUMP_FORCE = -11.0;
+    private final Random jumpRng;
+
     public Enemy(double spawnX, double spawnY, int enemyIndex, double patrolSpeed) {
         super(spawnX, spawnY, Constants.ENEMY_WIDTH, Constants.ENEMY_HEIGHT);
         this.enemyIndex = enemyIndex;
@@ -40,6 +47,8 @@ public class Enemy extends Entity {
         this.patrolling = true;
         this.chaseRange = 200 + enemyIndex * 30;
         this.facing = (enemyIndex % 2 == 0) ? Constants.FACING_RIGHT : Constants.FACING_LEFT;
+        this.jumpCooldown = 0;
+        this.jumpRng = new Random(enemyIndex * 71);
     }
 
     @Override
@@ -54,6 +63,9 @@ public class Enemy extends Entity {
         // Invulnerability
         if (invulnTimer > 0) invulnTimer--;
 
+        // Jump cooldown
+        if (jumpCooldown > 0) jumpCooldown--;
+
         // Apply knockback
         if (Math.abs(knockbackVelX) > 0.3) {
             velX = knockbackVelX;
@@ -67,45 +79,79 @@ public class Enemy extends Entity {
         // Physics (gravity, collision)
         super.update(map);
 
-        // Check if we need to turn around (hit a wall or about to fall off edge)
-        checkTurnAround(map);
+        // Check if we need to turn around or jump
+        checkTurnAroundOrJump(map);
     }
 
-    private void checkTurnAround(GameMap map) {
-        if (Math.abs(knockbackVelX) > 0.5) return; // Don't turn during knockback
+    private void checkTurnAroundOrJump(GameMap map) {
+        if (Math.abs(knockbackVelX) > 0.5) return;
 
         int ts = Constants.TILE_SIZE;
+        boolean wallAhead = false;
+        boolean edgeAhead = false;
 
-        // Check wall ahead
         if (facing == Constants.FACING_RIGHT) {
             int col = (int) ((x + width + 2) / ts);
             int row = (int) ((y + height / 2) / ts);
             if (map.isSolid(row, col)) {
-                facing = Constants.FACING_LEFT;
+                wallAhead = true;
             }
-            // Check edge ahead (no ground below next step)
             if (onGround) {
                 int groundCheckCol = (int) ((x + width + 4) / ts);
                 int groundRow = (int) ((y + height + 2) / ts);
                 if (!map.isSolid(groundRow, groundCheckCol)) {
-                    facing = Constants.FACING_LEFT;
+                    edgeAhead = true;
                 }
             }
         } else {
             int col = (int) ((x - 2) / ts);
             int row = (int) ((y + height / 2) / ts);
             if (map.isSolid(row, col)) {
-                facing = Constants.FACING_RIGHT;
+                wallAhead = true;
             }
-            // Check edge ahead
             if (onGround) {
                 int groundCheckCol = (int) ((x - 4) / ts);
                 int groundRow = (int) ((y + height + 2) / ts);
                 if (!map.isSolid(groundRow, groundCheckCol)) {
-                    facing = Constants.FACING_RIGHT;
+                    edgeAhead = true;
                 }
             }
         }
+
+        // Decision: jump or turn around
+        if (wallAhead) {
+            if (onGround && jumpCooldown <= 0 && canJumpOverWall(map)) {
+                velY = ENEMY_JUMP_FORCE;
+                jumpCooldown = JUMP_COOLDOWN_FRAMES;
+            } else {
+                facing = -facing;
+            }
+        } else if (edgeAhead) {
+            if (onGround && jumpCooldown <= 0 && jumpRng.nextFloat() < 0.5f) {
+                velY = ENEMY_JUMP_FORCE;
+                jumpCooldown = JUMP_COOLDOWN_FRAMES;
+            } else {
+                facing = -facing;
+            }
+        }
+
+        // Periodic random jump to help navigate between levels
+        if (onGround && jumpCooldown <= 0 && jumpRng.nextFloat() < 0.003f) {
+            velY = ENEMY_JUMP_FORCE;
+            jumpCooldown = JUMP_COOLDOWN_FRAMES;
+        }
+    }
+
+    private boolean canJumpOverWall(GameMap map) {
+        int ts = Constants.TILE_SIZE;
+        int checkCol;
+        if (facing == Constants.FACING_RIGHT) {
+            checkCol = (int) ((x + width + 2) / ts);
+        } else {
+            checkCol = (int) ((x - 2) / ts);
+        }
+        int checkRow = (int) (y / ts) - 1;
+        return checkRow >= 0 && !map.isSolid(checkRow, checkCol);
     }
 
     /** Called when player attacks this enemy. Returns true if enemy dies. */
@@ -135,6 +181,7 @@ public class Enemy extends Entity {
         deathTimer = 0;
         invulnTimer = 0;
         knockbackVelX = 0;
+        jumpCooldown = 0;
         facing = (enemyIndex % 2 == 0) ? Constants.FACING_RIGHT : Constants.FACING_LEFT;
     }
 

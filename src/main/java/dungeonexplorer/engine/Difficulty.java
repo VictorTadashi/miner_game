@@ -5,16 +5,16 @@ package dungeonexplorer.engine;
  */
 public enum Difficulty {
     EASY(
-        "FACIL", "Mapa curto, poucos monstros lentos",
-        60, 18, 1.5, 3, 4
+        "FACIL", "Mapa curto, monstros lentos",
+        60, 18, 1.5, 6, 4
     ),
     MEDIUM(
         "MEDIO", "Mapa medio, monstros normais",
-        80, 22, 2.0, 5, 5
+        80, 22, 2.0, 10, 5
     ),
     HARD(
         "DIFICIL", "Mapa longo, muitos monstros rapidos",
-        100, 26, 2.5, 7, 6
+        100, 26, 2.5, 14, 6
     );
 
     public final String displayName;
@@ -37,6 +37,6 @@ public enum Difficulty {
         this.diamondCount = diamondCount;
     }
 
-    public int windowWidth() { return 800; }
-    public int windowHeight() { return 608 + 50; } // viewport + HUD
+    public int windowWidth() { return 512; }
+    public int windowHeight() { return 384 + 50; } // viewport + HUD
 }

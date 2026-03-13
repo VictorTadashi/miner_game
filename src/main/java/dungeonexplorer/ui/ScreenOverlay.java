@@ -1,8 +1,10 @@
 package dungeonexplorer.ui;
 
 import dungeonexplorer.engine.Difficulty;
+import dungeonexplorer.entities.Player;
 import dungeonexplorer.util.Constants;
 import java.awt.*;
+import java.awt.image.BufferedImage;
 
 /**
  * Renders overlay screens: title, difficulty select, game over, level complete, pause.
@@ -92,56 +94,71 @@ public class ScreenOverlay {
     private void drawTitleMiner(Graphics2D g, int cx, int baseY) {
         float bounce = (float) Math.sin(animTimer * 0.08) * 4;
         int by = (int) bounce;
-        int x = cx - 14;
-        int y = baseY + by;
 
-        // Legs
-        g.setColor(new Color(60, 50, 40));
-        g.fillRoundRect(x + 4, y + 28, 7, 8, 2, 2);
-        g.fillRoundRect(x + 17, y + 28, 7, 8, 2, 2);
+        // Try to use the sprite image
+        BufferedImage sprite = Player.getSpriteRight();
+        if (sprite != null) {
+            // Draw sprite scaled up for the title screen (48x60)
+            int drawW = 48;
+            int drawH = 60;
+            int x = cx - drawW / 2;
+            int y = baseY + by - drawH / 2;
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                               RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+            g.drawImage(sprite, x, y, drawW, drawH, null);
 
-        // Body (overalls)
-        g.setColor(Constants.COLOR_PLAYER_DARK);
-        g.fillRoundRect(x + 3, y + 14, 22, 16, 4, 4);
+            // Light beam effect above the sprite
+            int beamAlpha = 18 + (int) (10 * Math.sin(animTimer * 0.12));
+            g.setColor(new Color(255, 255, 150, Math.max(0, Math.min(255, beamAlpha))));
+            int lx = x + drawW - 10;
+            int ly = y + 4;
+            int[] beamXpts = {lx, lx + 32, lx + 32, lx};
+            int[] beamYpts = {ly - 2, ly - 10, ly + 10, ly + 4};
+            g.fillPolygon(beamXpts, beamYpts, 4);
+        } else {
+            // Procedural fallback
+            int x = cx - 14;
+            int y = baseY + by;
 
-        // Belt
-        g.setColor(new Color(120, 90, 50));
-        g.fillRect(x + 4, y + 22, 20, 3);
+            g.setColor(new Color(60, 50, 40));
+            g.fillRoundRect(x + 4, y + 28, 7, 8, 2, 2);
+            g.fillRoundRect(x + 17, y + 28, 7, 8, 2, 2);
 
-        // Head
-        g.setColor(Constants.COLOR_SKIN);
-        g.fillOval(x + 5, y + 4, 18, 14);
+            g.setColor(Constants.COLOR_PLAYER_DARK);
+            g.fillRoundRect(x + 3, y + 14, 22, 16, 4, 4);
 
-        // Helmet
-        g.setColor(Constants.COLOR_HELMET);
-        g.fillArc(x + 3, y, 22, 12, 0, 180);
-        g.fillRect(x + 2, y + 5, 24, 3);
+            g.setColor(new Color(120, 90, 50));
+            g.fillRect(x + 4, y + 22, 20, 3);
 
-        // Lamp
-        g.setColor(Constants.COLOR_HELMET_LIGHT);
-        g.fillOval(x + 11, y + 1, 6, 4);
+            g.setColor(Constants.COLOR_SKIN);
+            g.fillOval(x + 5, y + 4, 18, 14);
 
-        // Light beam
-        g.setColor(new Color(255, 255, 180, 50));
-        int[] beamX = {x + 13, x + 9, x + 19, x + 15};
-        int[] beamY = {y + 1, y - 14, y - 14, y + 1};
-        g.fillPolygon(beamX, beamY, 4);
+            g.setColor(Constants.COLOR_HELMET);
+            g.fillArc(x + 3, y, 22, 12, 0, 180);
+            g.fillRect(x + 2, y + 5, 24, 3);
 
-        // Eyes
-        g.setColor(Color.WHITE);
-        g.fillOval(x + 10, y + 10, 4, 4);
-        g.fillOval(x + 16, y + 10, 4, 4);
-        g.setColor(new Color(40, 30, 20));
-        g.fillOval(x + 11, y + 11, 2, 2);
-        g.fillOval(x + 17, y + 11, 2, 2);
+            g.setColor(Constants.COLOR_HELMET_LIGHT);
+            g.fillOval(x + 11, y + 1, 6, 4);
 
-        // Pickaxe at side
-        g.setColor(Constants.COLOR_PICKAXE_HANDLE);
-        g.fillRect(x + 24, y + 10, 3, 18);
-        g.setColor(Constants.COLOR_PICKAXE_HEAD);
-        int[] px = {x + 25, x + 33, x + 25};
-        int[] py = {y + 8, y + 11, y + 14};
-        g.fillPolygon(px, py, 3);
+            g.setColor(new Color(255, 255, 180, 50));
+            int[] beamX = {x + 13, x + 9, x + 19, x + 15};
+            int[] beamY = {y + 1, y - 14, y - 14, y + 1};
+            g.fillPolygon(beamX, beamY, 4);
+
+            g.setColor(Color.WHITE);
+            g.fillOval(x + 10, y + 10, 4, 4);
+            g.fillOval(x + 16, y + 10, 4, 4);
+            g.setColor(new Color(40, 30, 20));
+            g.fillOval(x + 11, y + 11, 2, 2);
+            g.fillOval(x + 17, y + 11, 2, 2);
+
+            g.setColor(Constants.COLOR_PICKAXE_HANDLE);
+            g.fillRect(x + 24, y + 10, 3, 18);
+            g.setColor(Constants.COLOR_PICKAXE_HEAD);
+            int[] px = {x + 25, x + 33, x + 25};
+            int[] py = {y + 8, y + 11, y + 14};
+            g.fillPolygon(px, py, 3);
+        }
     }
 
     public void renderDifficultySelect(Graphics2D g, int selectedIndex, int width, int height) {

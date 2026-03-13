@@ -9,8 +9,8 @@ public final class Constants {
     public static final int TILE_SIZE = 32;
 
     // Viewport (fixed window size)
-    public static final int VIEWPORT_WIDTH = 800;
-    public static final int VIEWPORT_HEIGHT = 608; // 19 tiles * 32
+    public static final int VIEWPORT_WIDTH = 512;   // 16 tiles * 32
+    public static final int VIEWPORT_HEIGHT = 384;   // 12 tiles * 32
 
     // HUD
     public static final int HUD_HEIGHT = 50;
@@ -29,6 +29,9 @@ public final class Constants {
     // Player
     public static final int PLAYER_WIDTH = 22;
     public static final int PLAYER_HEIGHT = 30;
+    public static final int SPRITE_DRAW_WIDTH = 32;
+    public static final int SPRITE_DRAW_HEIGHT = 40;
+    public static final int WALK_ANIM_INTERVAL = 20;  // frames between walk sprite swap (~0.33s at 60FPS)
     public static final int PLAYER_LIVES = 3;
     public static final int PLAYER_ATTACK_COOLDOWN = 25; // frames
     public static final int PLAYER_ATTACK_DURATION = 12; // frames attack anim lasts
