@@ -14,6 +14,7 @@ public abstract class Entity {
     protected int width, height;
     protected int facing;
     protected boolean onGround;
+    protected boolean skipGravity = false;
     protected int animFrame;
     protected int animTimer;
 
@@ -29,9 +30,11 @@ public abstract class Entity {
     }
 
     public void update(GameMap map) {
-        // Gravity
-        velY += Constants.GRAVITY;
-        if (velY > Constants.MAX_FALL_SPEED) velY = Constants.MAX_FALL_SPEED;
+        // Gravity (suppressed when on a ladder)
+        if (!skipGravity) {
+            velY += Constants.GRAVITY;
+            if (velY > Constants.MAX_FALL_SPEED) velY = Constants.MAX_FALL_SPEED;
+        }
 
         // Horizontal movement
         x += velX;

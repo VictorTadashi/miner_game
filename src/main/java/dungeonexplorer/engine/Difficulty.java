@@ -6,15 +6,15 @@ package dungeonexplorer.engine;
 public enum Difficulty {
     EASY(
         "FACIL", "Mapa curto, monstros lentos",
-        60, 18, 1.5, 6, 4
+        60, 28, 1.5, 6, 4
     ),
     MEDIUM(
         "MEDIO", "Mapa medio, monstros normais",
-        80, 22, 2.0, 10, 5
+        80, 34, 2.0, 10, 5
     ),
     HARD(
         "DIFICIL", "Mapa longo, muitos monstros rapidos",
-        100, 26, 2.5, 14, 6
+        100, 40, 2.5, 14, 6
     );
 
     public final String displayName;

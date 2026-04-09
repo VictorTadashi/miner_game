@@ -19,7 +19,7 @@ import os
 RES_DIR = r"C:\Users\victo\miner_game\src\main\resources\tiles"
 OUT_DIR = r"C:\Users\victo\miner_game\out\tiles"
 
-TARGET_W, TARGET_H = 32, 40
+TARGET_W, TARGET_H = 48, 60
 
 
 def remove_background(img):
@@ -28,10 +28,10 @@ def remove_background(img):
     h, w = data.shape[:2]
 
     def is_background(r, g, b):
-        if abs(int(r) - int(g)) > 15 or abs(int(g) - int(b)) > 15:
+        if abs(int(r) - int(g)) > 30 or abs(int(g) - int(b)) > 30:
             return False
         avg = (int(r) + int(g) + int(b)) / 3
-        return 160 < avg < 250
+        return 100 < avg < 250
 
     alpha_mask = np.ones((h, w), dtype=bool)
     visited = np.zeros((h, w), dtype=bool)
@@ -84,7 +84,7 @@ def remove_background(img):
                 r, g, b = int(data[y, x, 0]), int(data[y, x, 1]), int(data[y, x, 2])
                 gray_diff = abs(r - g) + abs(g - b)
                 avg = (r + g + b) / 3
-                if gray_diff < 20 and avg > 150:
+                if gray_diff < 30 and avg > 140:
                     data[y, x, 3] = max(0, min(255, int(255 * (1 - (avg - 150) / 100))))
 
     removed = np.sum(~alpha_mask)
@@ -170,6 +170,8 @@ def save_sprite(img, output_name):
 IDLE_SRC = r"C:\Users\victo\Downloads\ImgMineiroParado_extracted\ImgMineiroParado.png"
 WALK1_SRC = r"C:\Users\victo\Downloads\MineradorAndando_extracted\MineradorAndando.png"
 WALK2_SRC = r"C:\Users\victo\Downloads\MineradorAndando02_extracted\MineradorAndando02.png"
+ATTACK1_SRC = r"C:\Users\victo\Downloads\MineradorAnimacao_extracted\MineradorAnimacao.png"
+ATTACK2_SRC = r"C:\Users\victo\Downloads\MineradorAnimacao02_extracted\MineradorAnimacao02.png"
 
 # ============================================================
 # Step 1: Remove backgrounds and crop
@@ -186,6 +188,12 @@ walk1_cropped = remove_bg_and_crop(WALK1_SRC)
 
 print("\n[Walk Frame 2]")
 walk2_cropped = remove_bg_and_crop(WALK2_SRC)
+
+print("\n[Attack Frame 1]")
+attack1_cropped = remove_bg_and_crop(ATTACK1_SRC)
+
+print("\n[Attack Frame 2]")
+attack2_cropped = remove_bg_and_crop(ATTACK2_SRC)
 
 # ============================================================
 # Step 2: Compute center-of-mass for each at target scale
@@ -237,14 +245,22 @@ print("\n[Walk2 -> minerador_walk2.png]")
 walk2_final = process_sprite_com(walk2_cropped, TARGET_W, TARGET_H, com_target_x)
 save_sprite(walk2_final, "minerador_walk2.png")
 
+print("\n[Attack1 -> minerador_attack1.png]")
+attack1_final = process_sprite_com(attack1_cropped, TARGET_W, TARGET_H, com_target_x)
+save_sprite(attack1_final, "minerador_attack1.png")
+
+print("\n[Attack2 -> minerador_attack2.png]")
+attack2_final = process_sprite_com(attack2_cropped, TARGET_W, TARGET_H, com_target_x)
+save_sprite(attack2_final, "minerador_attack2.png")
+
 # ============================================================
-# Step 4: Title sprite (64x80)
+# Step 4: Title sprite (96x120)
 # ============================================================
 print("\n" + "=" * 50)
-print("Step 4: Title sprite (64x80)")
+print("Step 4: Title sprite (96x120)")
 print("=" * 50)
 
-title_final = process_sprite_com(idle_cropped, 64, 80, 32)
+title_final = process_sprite_com(idle_cropped, 96, 120, 48)
 save_sprite(title_final, "minerador_title.png")
 
 # ============================================================
@@ -254,7 +270,8 @@ print("\n" + "=" * 50)
 print("Step 5: Verify alignment of final sprites")
 print("=" * 50)
 
-for name in ["minerador.png", "minerador_walk1.png", "minerador_walk2.png"]:
+for name in ["minerador.png", "minerador_walk1.png", "minerador_walk2.png",
+             "minerador_attack1.png", "minerador_attack2.png"]:
     path = os.path.join(OUT_DIR, name)
     img = Image.open(path)
     com_x = get_center_of_mass_x(img)
@@ -266,4 +283,31 @@ for name in ["minerador.png", "minerador_walk1.png", "minerador_walk2.png"]:
     rmin, rmax = np.where(rows)[0][[0, -1]]
     print(f"  {name}: CoM_x={com_x:.1f}, opaque_px={opaque}, content_cols=[{rmin},{rmax}]")
 
-print("\nAll sprites processed with center-of-mass alignment!")
+print("\nAll miner sprites processed with center-of-mass alignment!")
+
+# ============================================================
+# Step 6: Monster sprite (48x48) — larger than the player
+# ============================================================
+print("\n" + "=" * 50)
+print("Step 6: Monster sprite (72x72)")
+print("=" * 50)
+
+MONSTER_SRC = r"C:\Users\victo\Downloads\GameMonster01_extracted\GameMonster01.png"
+
+print("\n[Monster]")
+monster_cropped = remove_bg_and_crop(MONSTER_SRC)
+
+MONSTER_W, MONSTER_H = 72, 72
+monster_final = process_sprite_com(monster_cropped, MONSTER_W, MONSTER_H, MONSTER_W / 2)
+save_sprite(monster_final, "monster_01.png")
+
+# Verify monster
+path = os.path.join(OUT_DIR, "monster_01.png")
+img = Image.open(path)
+com_x = get_center_of_mass_x(img)
+data = np.array(img)
+alpha = data[:, :, 3]
+opaque = np.sum(alpha > 0)
+print(f"  monster_01.png: CoM_x={com_x:.1f}, opaque_px={opaque}, size={img.size}")
+
+print("\nAll sprites processed!")

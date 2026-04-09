@@ -29,17 +29,28 @@ public class Player extends Entity {
 
     // Input state (held keys)
     private boolean moveLeft, moveRight, jumpPressed;
+    private boolean climbUp, climbDown;
+
+    // Ladder state
+    private boolean onLadder = false;
 
     // Sprite images (shared across all Player instances)
     private static BufferedImage spriteRight;
     private static BufferedImage spriteLeft;
-    private static BufferedImage[] walkRight;  // walk animation frames (right-facing)
-    private static BufferedImage[] walkLeft;   // walk animation frames (left-facing)
+    private static BufferedImage[] walkRight;    // walk animation frames (right-facing)
+    private static BufferedImage[] walkLeft;     // walk animation frames (left-facing)
+    private static BufferedImage[] attackRight;  // attack animation frames (right-facing)
+    private static BufferedImage[] attackLeft;   // attack animation frames (left-facing)
     private static boolean spriteLoaded = false;
 
     // Walk animation state (per instance)
     private int walkAnimTimer = 0;
     private int walkFrame = 0;
+
+    // Ground grace timer: stabilizes onGround for animation purposes.
+    // onGround flickers every frame due to micro-gravity, causing idle/walk
+    // sprite to swap 30x/sec ("trembling"). This buffer fixes it.
+    private int groundGraceTimer = 0;
 
     public Player(double spawnX, double spawnY) {
         super(spawnX, spawnY, Constants.PLAYER_WIDTH, Constants.PLAYER_HEIGHT);
@@ -133,12 +144,26 @@ public class Player extends Entity {
             } else {
                 System.out.println("[Player] Walk sprites not found, walking will use idle sprite.");
             }
+
+            // Load attack animation frames
+            BufferedImage[] atk1 = scaleAndFlip(loadImage("minerador_attack1.png"));
+            BufferedImage[] atk2 = scaleAndFlip(loadImage("minerador_attack2.png"));
+
+            if (atk1 != null && atk2 != null) {
+                attackRight = new BufferedImage[]{atk1[0], atk2[0]};
+                attackLeft = new BufferedImage[]{atk1[1], atk2[1]};
+                System.out.println("[Player] Attack sprites loaded (2 frames).");
+            } else {
+                System.out.println("[Player] Attack sprites not found, attack will use current sprite.");
+            }
         } catch (Exception e) {
             System.out.println("[Player] Sprite load error: " + e.getMessage());
             spriteRight = null;
             spriteLeft = null;
             walkRight = null;
             walkLeft = null;
+            attackRight = null;
+            attackLeft = null;
         }
     }
 
@@ -156,29 +181,70 @@ public class Player extends Entity {
             return;
         }
 
-        // Horizontal movement from held keys
-        if (moveLeft) {
-            velX = -Constants.PLAYER_WALK_SPEED;
-            facing = Constants.FACING_LEFT;
-        } else if (moveRight) {
-            velX = Constants.PLAYER_WALK_SPEED;
-            facing = Constants.FACING_RIGHT;
-        } else {
-            velX *= Constants.FRICTION;
-            if (Math.abs(velX) < 0.3) velX = 0;
+        // --- Ladder logic ---
+        boolean touchingLadder = isOverlappingLadder(map);
+
+        // Attach to ladder when pressing up or down while touching it
+        if (!onLadder && touchingLadder && (climbUp || climbDown)) {
+            onLadder = true;
+            int ts = Constants.TILE_SIZE;
+            int ladderCol = (int) ((x + width / 2.0) / ts);
+            x = ladderCol * ts + (ts - width) / 2.0;
+            velX = 0;
+        }
+        // Detach automatically if no longer touching any ladder tile
+        if (onLadder && !touchingLadder) {
+            onLadder = false;
         }
 
-        // Jump
-        if (jumpPressed && onGround) {
-            velY = Constants.JUMP_FORCE;
-            onGround = false;
+        if (onLadder) {
+            skipGravity = true;
+            velX = 0;
+            velY = 0;
+            if (climbUp)        velY = -Constants.LADDER_CLIMB_SPEED;
+            else if (climbDown) velY =  Constants.LADDER_CLIMB_SPEED;
+            // SPACE/jump key detaches and launches upward
+            if (jumpPressed) {
+                onLadder = false;
+                skipGravity = false;
+                velY = Constants.JUMP_FORCE;
+            }
+        } else {
+            skipGravity = false;
+
+            // Horizontal movement from held keys (only when not on ladder)
+            if (moveLeft) {
+                velX = -Constants.PLAYER_WALK_SPEED;
+                facing = Constants.FACING_LEFT;
+            } else if (moveRight) {
+                velX = Constants.PLAYER_WALK_SPEED;
+                facing = Constants.FACING_RIGHT;
+            } else {
+                velX *= Constants.FRICTION;
+                if (Math.abs(velX) < 0.3) velX = 0;
+            }
+
+            // Jump (climbUp also triggers jump when on ground)
+            if ((jumpPressed || climbUp) && onGround) {
+                velY = Constants.JUMP_FORCE;
+                onGround = false;
+            }
         }
 
         // Physics (gravity, collision)
         super.update(map);
 
-        // Walk animation timer
-        if (Math.abs(velX) > 0.5 && onGround) {
+        // Ground grace timer: onGround flickers every frame due to micro-gravity.
+        // This buffer keeps effectivelyGrounded stable for animation.
+        if (onGround) {
+            groundGraceTimer = 4;
+        } else if (groundGraceTimer > 0) {
+            groundGraceTimer--;
+        }
+
+        // Walk animation timer (uses grace timer instead of raw onGround)
+        boolean effectivelyGrounded = groundGraceTimer > 0;
+        if (Math.abs(velX) > 0.5 && effectivelyGrounded) {
             walkAnimTimer++;
             if (walkAnimTimer >= Constants.WALK_ANIM_INTERVAL) {
                 walkAnimTimer = 0;
@@ -257,6 +323,25 @@ public class Player extends Entity {
     public void setMoveLeft(boolean v) { this.moveLeft = v; }
     public void setMoveRight(boolean v) { this.moveRight = v; }
     public void setJumpPressed(boolean v) { this.jumpPressed = v; }
+    public void setClimbUp(boolean v) { this.climbUp = v; }
+    public void setClimbDown(boolean v) { this.climbDown = v; }
+
+    public boolean isOnLadder() { return onLadder; }
+
+    /** Returns true if any tile the player overlaps is a TILE_LADDER. */
+    private boolean isOverlappingLadder(GameMap map) {
+        int ts = Constants.TILE_SIZE;
+        int startCol = (int) (x / ts);
+        int endCol   = (int) ((x + width - 1) / ts);
+        int startRow = (int) (y / ts);
+        int endRow   = (int) ((y + height - 1) / ts);
+        for (int r = startRow; r <= endRow; r++) {
+            for (int c = startCol; c <= endCol; c++) {
+                if (map.getTile(r, c) == Constants.TILE_LADDER) return true;
+            }
+        }
+        return false;
+    }
 
     @Override
     public void render(Graphics2D g, double camX, double camY) {
@@ -298,11 +383,14 @@ public class Player extends Entity {
         if (spriteRight != null) {
             // === SPRITE-BASED RENDERING ===
             boolean facingRight = (facing == Constants.FACING_RIGHT);
-            boolean isWalking = Math.abs(velX) > 0.5 && onGround;
 
-            // Select appropriate sprite: walking frames or idle
+            // Select appropriate sprite: attack > walk > idle
             BufferedImage sprite;
-            if (isWalking && walkRight != null) {
+            if (attacking && attackRight != null) {
+                // First half of attack: frame 1 (wind-up), second half: frame 2 (strike)
+                int atkFrame = (attackTimer > Constants.PLAYER_ATTACK_DURATION / 2) ? 0 : 1;
+                sprite = facingRight ? attackRight[atkFrame] : attackLeft[atkFrame];
+            } else if (Math.abs(velX) > 0.5 && groundGraceTimer > 0 && walkRight != null) {
                 sprite = facingRight ? walkRight[walkFrame] : walkLeft[walkFrame];
             } else {
                 sprite = facingRight ? spriteRight : spriteLeft;

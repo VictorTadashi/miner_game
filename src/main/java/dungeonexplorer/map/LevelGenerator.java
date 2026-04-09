@@ -4,29 +4,25 @@ import dungeonexplorer.util.Constants;
 import java.util.*;
 
 /**
- * Generates side-scrolling platformer levels with a dense cave system.
- * The map is FILLED with solid rock, then segmented corridors are carved out,
- * creating tight interconnected tunnels at multiple heights.
+ * Generates Hollow Knight-style cave levels with wide open corridors.
  *
- * Layout: corridors (3 tiles high) separated by 1-tile floors.
- * Corridors are broken into segments with walls between them.
- * Passages between segments are 2 tiles high to ensure player access.
- *
- * Spawn room: a clean rectangular area at the bottom-left corner with
- * an open corridor leading right into the rest of the map.
+ * Layout philosophy:
+ * - Large open corridors (4-6 tiles high) stacked vertically
+ * - Solid floors (2 tiles thick) separate corridors
+ * - Wide vertical shafts (3-6 tiles) connect corridors
+ * - Corridors are clean and open — no random blocks scattered inside
+ * - Climbing platforms near shafts for upward traversal
+ * - Optional thin ledge platforms in tall corridors for exploration
+ * - Spawn at top-left, exit at bottom-right
  */
 public class LevelGenerator {
     private final int rows, cols;
     private final Random rng;
 
-    // Marks tiles that belong to inter-segment passages (protected from features)
-    private boolean[][] passageZones;
+    private static final int CORRIDOR_MIN_HEIGHT = 4;
+    private static final int CORRIDOR_MAX_HEIGHT = 6;
+    private static final int FLOOR_THICKNESS = 2;
 
-    private static final int CORRIDOR_HEIGHT = 3;
-    private static final int FLOOR_THICKNESS = 1;
-    private static final int SECTION_HEIGHT = CORRIDOR_HEIGHT + FLOOR_THICKNESS; // 4
-
-    // Spawn room dimensions (clean rectangular area)
     private static final int SPAWN_ROOM_WIDTH = 10;
     private static final int EXIT_ROOM_WIDTH = 10;
 
@@ -39,328 +35,418 @@ public class LevelGenerator {
     public int[][] generate(int level, int enemyCount, int diamondCount) {
         int[][] map = new int[rows][cols];
 
-        // Initialize passage zones tracking
-        passageZones = new boolean[rows][cols];
-
         // ============================================================
-        // STEP 1: Fill EVERYTHING with solid rock
+        // STEP 1: Fill everything with solid rock
         // ============================================================
         for (int[] row : map) Arrays.fill(row, Constants.TILE_SOLID);
 
         // ============================================================
-        // STEP 2: Determine corridor positions
-        // Each corridor: 3 tiles high empty space
-        // Separated by 1-tile solid floors
+        // STEP 2: Determine corridor layout (variable heights 4-6)
         // ============================================================
-        List<Integer> corridorTops = new ArrayList<>();
-        int y = 1; // Start 1 row below top (row 0 = ceiling)
-        while (y + CORRIDOR_HEIGHT <= rows - 2) { // Leave 2 rows for ground
-            corridorTops.add(y);
-            y += SECTION_HEIGHT;
+        List<int[]> corridors = new ArrayList<>(); // Each entry: {topRow, height}
+        int y = 1; // Row 0 = solid ceiling
+        while (y + CORRIDOR_MIN_HEIGHT <= rows - 1) {
+            int h = CORRIDOR_MIN_HEIGHT + rng.nextInt(CORRIDOR_MAX_HEIGHT - CORRIDOR_MIN_HEIGHT + 1);
+            h = Math.min(h, rows - 1 - y);
+            if (h < CORRIDOR_MIN_HEIGHT) break;
+            corridors.add(new int[]{y, h});
+            y += h + FLOOR_THICKNESS;
+        }
+        if (corridors.isEmpty()) return map;
+
+        // ============================================================
+        // STEP 3: Carve fully open corridors (no internal walls/blocks)
+        // ============================================================
+        for (int[] corridor : corridors) {
+            int top = corridor[0];
+            int h = corridor[1];
+            for (int r = top; r < top + h && r < rows; r++) {
+                for (int c = 1; c < cols - 1; c++) {
+                    map[r][c] = Constants.TILE_EMPTY;
+                }
+            }
         }
 
-        if (corridorTops.isEmpty()) return map;
+        // ============================================================
+        // STEP 4: Create vertical shafts between corridors
+        // Wide openings with climbing platforms for traversal
+        // ============================================================
+        createVerticalShafts(map, corridors);
 
-        // Pre-calculate spawn and exit positions (used throughout generation)
-        int spawnCorridorIdx = corridorTops.size() - 1;
-        int spawnTop = corridorTops.get(spawnCorridorIdx);
-        int spawnRow = spawnTop + CORRIDOR_HEIGHT - 1; // Bottom of corridor (standing on floor)
+        // ============================================================
+        // STEP 4.5: Place ladders in one shaft per floor boundary
+        // ============================================================
+        placeLadders(map, corridors);
+
+        // ============================================================
+        // STEP 5: Add thin ledge platforms in tall corridors
+        // ============================================================
+        addLedgePlatforms(map, corridors, level);
+
+        // ============================================================
+        // STEP 6: Determine spawn/exit positions
+        // Spawn: top-left (first corridor)
+        // Exit: bottom-right (last corridor)
+        // ============================================================
+        int spawnTop = corridors.get(0)[0];
+        int spawnH = corridors.get(0)[1];
+        int spawnRow = spawnTop + spawnH - 1;
         int spawnCol = 3;
 
-        int exitCorridorIdx = 0;
-        int exitTop = corridorTops.get(exitCorridorIdx);
-        int exitRow = exitTop + CORRIDOR_HEIGHT - 1; // Bottom of corridor (on floor)
+        int exitIdx = corridors.size() - 1;
+        int exitTop = corridors.get(exitIdx)[0];
+        int exitH = corridors.get(exitIdx)[1];
+        int exitRow = exitTop + exitH - 1;
         int exitCol = cols - 4;
 
         // ============================================================
-        // STEP 3: Carve segmented corridors with 2-tile-high passages
-        // Each corridor is broken into segments with solid walls
-        // between them. Each wall has a 2-tile-high passage.
+        // STEP 7: Ensure spawn can reach exit
         // ============================================================
-        for (int top : corridorTops) {
-            int c = 1;
-            while (c < cols - 1) {
-                // Determine segment length (6-14 tiles wide) — shorter = more walls = tighter
-                int segmentLen = 6 + rng.nextInt(9);
-                segmentLen = Math.min(segmentLen, cols - 1 - c);
-
-                // Carve this segment
-                for (int r = top; r < Math.min(top + CORRIDOR_HEIGHT, rows - 2); r++) {
-                    for (int sc = c; sc < c + segmentLen && sc < cols - 1; sc++) {
-                        map[r][sc] = Constants.TILE_EMPTY;
-                    }
-                }
-
-                c += segmentLen;
-
-                // Add a wall/divider between segments (1-3 tiles wide)
-                // Carve a 2-tile-high passage for player access
-                if (c < cols - 3) {
-                    int wallWidth = 1 + rng.nextInt(3);
-
-                    // Choose 2 consecutive rows for the passage
-                    int passageRow1, passageRow2;
-                    if (rng.nextBoolean()) {
-                        // Passage at top of corridor
-                        passageRow1 = top;
-                        passageRow2 = top + 1;
-                    } else {
-                        // Passage at bottom of corridor
-                        passageRow1 = top + CORRIDOR_HEIGHT - 2;
-                        passageRow2 = top + CORRIDOR_HEIGHT - 1;
-                    }
-
-                    // Carve both rows across the wall width
-                    for (int wc = c; wc < Math.min(c + wallWidth, cols - 1); wc++) {
-                        if (passageRow1 >= 0 && passageRow1 < rows - 1) {
-                            map[passageRow1][wc] = Constants.TILE_EMPTY;
-                        }
-                        if (passageRow2 >= 0 && passageRow2 < rows - 1) {
-                            map[passageRow2][wc] = Constants.TILE_EMPTY;
-                        }
-                    }
-
-                    // Mark passage zones (passage tiles + 1-tile margin on each side)
-                    int marginLeft = Math.max(1, c - 1);
-                    int marginRight = Math.min(cols - 2, c + wallWidth);
-                    for (int mc = marginLeft; mc <= marginRight; mc++) {
-                        if (passageRow1 >= 0 && passageRow1 < rows) {
-                            passageZones[passageRow1][mc] = true;
-                        }
-                        if (passageRow2 >= 0 && passageRow2 < rows) {
-                            passageZones[passageRow2][mc] = true;
-                        }
-                    }
-
-                    c += wallWidth;
-                }
-            }
-        }
+        ensureConnectivity(map, spawnRow, spawnCol, exitRow, exitCol, corridors);
 
         // ============================================================
-        // STEP 4: Create vertical connections between corridors
-        // Fewer, narrower gaps for tighter navigation
+        // STEP 8: Create clean spawn room (top-left)
         // ============================================================
-        for (int i = 0; i < corridorTops.size() - 1; i++) {
-            int floorRow = corridorTops.get(i) + CORRIDOR_HEIGHT;
-            if (floorRow >= rows - 2) continue;
-
-            int gapCount = 2 + cols / 25 + level / 4;
-            int sectionW = Math.max(1, (cols - 6) / gapCount);
-
-            for (int g = 0; g < gapCount; g++) {
-                int baseCol = 3 + g * sectionW;
-                int gapCol = baseCol + rng.nextInt(Math.max(1, sectionW - 4));
-                gapCol = Math.max(2, Math.min(gapCol, cols - 6));
-                int gapWidth = 2 + rng.nextInt(2); // 2-3 tiles wide
-
-                for (int gc = gapCol; gc < Math.min(gapCol + gapWidth, cols - 1); gc++) {
-                    map[floorRow][gc] = Constants.TILE_EMPTY;
-                }
-            }
-        }
+        createSpawnRoom(map, spawnTop, spawnH, spawnRow, spawnCol);
 
         // ============================================================
-        // STEP 5: Add internal corridor features for variety
-        // Protected passage zones + minimum feature sizes
-        // Skip spawn room area and exit room area
+        // STEP 9: Create clean exit room (bottom-right)
         // ============================================================
-        addCorridorFeatures(map, corridorTops, level);
+        createExitRoom(map, exitTop, exitH, exitRow, exitCol);
 
         // ============================================================
-        // STEP 6: Ensure connectivity (player-height-aware BFS)
-        // Uses coordinates only — no tile markers placed yet
-        // ============================================================
-        // Temporarily clear spawn and exit areas for connectivity check
-        clearArea(map, spawnTop, 1, CORRIDOR_HEIGHT, SPAWN_ROOM_WIDTH);
-        clearArea(map, exitTop, cols - EXIT_ROOM_WIDTH - 1, CORRIDOR_HEIGHT, EXIT_ROOM_WIDTH);
-        ensureConnectivity(map, spawnRow, spawnCol, exitRow, exitCol, corridorTops);
-
-        // ============================================================
-        // STEP 7: Remove stray isolated solid tiles (cleanup)
+        // STEP 10: Remove stray isolated solid tiles
         // ============================================================
         removeStrayTiles(map);
 
         // ============================================================
-        // STEP 8: Create spawn room (bottom-left, clean rectangle)
-        // This runs AFTER all map modifications to prevent overwriting
+        // STEP 11: Place gold bars
         // ============================================================
-        createSpawnRoom(map, spawnTop, spawnRow, spawnCol);
+        placeGoldBars(map, level, corridors);
 
         // ============================================================
-        // STEP 9: Create exit room (top-right, clean rectangle)
+        // STEP 12: Place diamonds
         // ============================================================
-        createExitRoom(map, exitTop, exitRow, exitCol);
+        placeDiamonds(map, diamondCount, corridors);
 
         // ============================================================
-        // STEP 10: Place gold bars in corridors
+        // STEP 13: Place enemy spawns
         // ============================================================
-        placeGoldBars(map, level, corridorTops);
-
-        // ============================================================
-        // STEP 11: Place diamonds (rarer, harder to reach)
-        // ============================================================
-        placeDiamonds(map, diamondCount, corridorTops);
-
-        // ============================================================
-        // STEP 12: Place enemy spawns distributed across corridors
-        // ============================================================
-        placeEnemySpawns(map, enemyCount, corridorTops);
+        placeEnemySpawns(map, enemyCount, corridors);
 
         return map;
     }
 
+    // ================================================================
+    // Vertical Shafts — wide openings connecting corridors
+    // ================================================================
+
     /**
-     * Create a clean spawn room at bottom-left corner of the map.
-     * The room is a clear rectangle with a corridor leading right.
-     * Player spawn is placed at the bottom of the room (standing position).
+     * Create wide vertical shafts connecting adjacent corridors.
+     * Each shaft cuts through the solid floor between corridors.
+     * Includes climbing platforms so the player can traverse upward.
+     *
+     * The player's max jump height is ~4.5 tiles, so for corridors
+     * taller than 4, intermediate stepping platforms are placed.
      */
-    private void createSpawnRoom(int[][] map, int spawnTop, int spawnRow, int spawnCol) {
-        // Clear the entire spawn room area (SPAWN_ROOM_WIDTH tiles wide, full corridor height)
-        for (int r = spawnTop; r < Math.min(spawnTop + CORRIDOR_HEIGHT, rows - 1); r++) {
+    private void createVerticalShafts(int[][] map, List<int[]> corridors) {
+        for (int i = 0; i < corridors.size() - 1; i++) {
+            int upperTop = corridors.get(i)[0];
+            int upperH = corridors.get(i)[1];
+            int lowerTop = corridors.get(i + 1)[0];
+            int lowerH = corridors.get(i + 1)[1];
+
+            int floorStart = upperTop + upperH;      // First solid row of floor
+            int floorEnd = lowerTop - 1;              // Last solid row of floor
+
+            // 2-4 shafts per floor connection
+            int shaftCount = 2 + rng.nextInt(3);
+            int sectionWidth = Math.max(8, (cols - 8) / shaftCount);
+
+            for (int s = 0; s < shaftCount; s++) {
+                int baseCol = 3 + s * sectionWidth;
+                int jitter = Math.max(0, sectionWidth - 8);
+                int shaftCol = baseCol + (jitter > 0 ? rng.nextInt(jitter) : 0);
+                shaftCol = Math.max(2, Math.min(shaftCol, cols - 9));
+                int shaftWidth = 3 + rng.nextInt(4); // 3-6 tiles wide
+                shaftWidth = Math.min(shaftWidth, cols - 2 - shaftCol);
+
+                // Carve through the floor (open both rows)
+                for (int r = floorStart; r <= floorEnd && r < rows; r++) {
+                    for (int c = shaftCol; c < Math.min(shaftCol + shaftWidth, cols - 1); c++) {
+                        map[r][c] = Constants.TILE_EMPTY;
+                    }
+                }
+
+                // === Climbing platforms for upward traversal ===
+                // Platform A: inside the shaft at the lower floor row
+                // This lets the player jump from the lower corridor into the shaft
+                if (shaftWidth >= 3) {
+                    int platWidth = Math.min(3, shaftWidth - 1);
+                    int platStart = shaftCol + (shaftWidth - platWidth) / 2;
+                    for (int c = platStart; c < platStart + platWidth && c < cols - 1; c++) {
+                        if (floorEnd >= 0 && floorEnd < rows) {
+                            map[floorEnd][c] = Constants.TILE_SOLID;
+                        }
+                    }
+                }
+
+                // Platform B: mid-height in the lower corridor, near the shaft
+                // Needed when the lower corridor is tall (>=5 tiles) so the
+                // player can reach platform A in two jumps instead of one
+                if (lowerH >= 5) {
+                    int midRow = lowerTop + 2; // Near the ceiling of the lower corridor
+                    int midWidth = Math.min(3, shaftWidth);
+                    int midStart = shaftCol;
+                    // Alternate side to avoid blocking the shaft center
+                    if (s % 2 == 1) {
+                        midStart = Math.max(1, shaftCol - 3);
+                    } else {
+                        midStart = Math.min(cols - midWidth - 1, shaftCol + shaftWidth);
+                    }
+                    for (int c = midStart; c < midStart + midWidth && c < cols - 1; c++) {
+                        if (c > 0 && midRow >= 0 && midRow < rows
+                            && map[midRow][c] == Constants.TILE_EMPTY) {
+                            map[midRow][c] = Constants.TILE_SOLID;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ================================================================
+    // Ladders — one ladder per floor boundary, placed in an existing shaft
+    // ================================================================
+
+    /**
+     * For each pair of adjacent corridors, find the first column where
+     * the entire floor section is TILE_EMPTY (a shaft was carved there)
+     * and mark it as TILE_LADDER, extending 2 tiles into each corridor.
+     */
+    private void placeLadders(int[][] map, List<int[]> corridors) {
+        for (int i = 0; i < corridors.size() - 1; i++) {
+            int upperTop = corridors.get(i)[0];
+            int upperH   = corridors.get(i)[1];
+            int lowerTop = corridors.get(i + 1)[0];
+
+            int floorStart = upperTop + upperH; // first solid row of floor
+            int floorEnd   = lowerTop - 1;      // last solid row of floor
+
+            // Find first column fully open through the floor section
+            int ladderCol = -1;
+            for (int c = 2; c < cols - 2; c++) {
+                boolean allEmpty = true;
+                for (int r = floorStart; r <= floorEnd; r++) {
+                    if (map[r][c] != Constants.TILE_EMPTY) {
+                        allEmpty = false;
+                        break;
+                    }
+                }
+                if (allEmpty) {
+                    ladderCol = c;
+                    break;
+                }
+            }
+
+            if (ladderCol == -1) continue;
+
+            // Ladder starts at the last air row of the upper corridor (walkable floor level)
+            // and ends at the ground row of the lower corridor.
+            // Floor rows (floorStart..floorEnd) are force-cleared to TILE_LADDER so the
+            // shaft is always passable even if a platform tile was placed there.
+            int ladderTop    = floorStart - 1;
+            int ladderBottom = lowerTop + corridors.get(i + 1)[1] - 1;
+
+            for (int r = ladderTop; r <= ladderBottom && r < rows; r++) {
+                if (r >= floorStart && r <= floorEnd) {
+                    // Force the two floor-barrier rows to become ladder
+                    map[r][ladderCol] = Constants.TILE_LADDER;
+                } else if (map[r][ladderCol] == Constants.TILE_EMPTY) {
+                    map[r][ladderCol] = Constants.TILE_LADDER;
+                }
+            }
+        }
+    }
+
+    // ================================================================
+    // Ledge Platforms — thin platforms in tall corridors for variety
+    // ================================================================
+
+    /**
+     * Add thin platforms (1 tile high, 3-5 tiles wide) inside tall corridors.
+     * These are placed at mid-height for exploration and gold placement.
+     * Only placed in corridors with height >= 5.
+     */
+    private void addLedgePlatforms(int[][] map, List<int[]> corridors, int level) {
+        for (int idx = 0; idx < corridors.size(); idx++) {
+            int top = corridors.get(idx)[0];
+            int h = corridors.get(idx)[1];
+
+            // Only add ledges in tall corridors
+            if (h < 5) continue;
+
+            // Determine safe column ranges (skip spawn/exit rooms)
+            int safeLeft = (idx == 0) ? SPAWN_ROOM_WIDTH + 3 : 4;
+            int safeRight = (idx == corridors.size() - 1) ? cols - EXIT_ROOM_WIDTH - 3 : cols - 4;
+            if (safeRight - safeLeft < 8) continue;
+
+            // Platform row at mid-height
+            int platRow = top + h / 2;
+
+            // 1-3 ledges per corridor
+            int platCount = 1 + rng.nextInt(2 + level / 3);
+            platCount = Math.min(platCount, 4);
+
+            for (int p = 0; p < platCount; p++) {
+                int col = safeLeft + rng.nextInt(Math.max(1, safeRight - safeLeft - 5));
+                int w = 3 + rng.nextInt(3); // 3-5 tiles wide
+
+                // Verify area is clear
+                boolean canPlace = true;
+                for (int c = col; c < Math.min(col + w, safeRight); c++) {
+                    if (c >= cols - 1 || map[platRow][c] != Constants.TILE_EMPTY) {
+                        canPlace = false;
+                        break;
+                    }
+                }
+
+                if (canPlace && w >= 3) {
+                    int actualWidth = Math.min(w, safeRight - col);
+                    for (int c = col; c < col + actualWidth && c < cols - 1; c++) {
+                        map[platRow][c] = Constants.TILE_SOLID;
+                    }
+                }
+            }
+        }
+    }
+
+    // ================================================================
+    // Spawn Room — clean area at top-left
+    // ================================================================
+
+    private void createSpawnRoom(int[][] map, int spawnTop, int spawnH,
+                                  int spawnRow, int spawnCol) {
+        // Clear the spawn room area
+        for (int r = spawnTop; r < spawnTop + spawnH && r < rows; r++) {
             for (int c = 1; c < Math.min(1 + SPAWN_ROOM_WIDTH, cols - 1); c++) {
                 map[r][c] = Constants.TILE_EMPTY;
             }
         }
 
-        // Ensure solid floor exists below the spawn room
-        int floorRow = spawnTop + CORRIDOR_HEIGHT;
+        // Ensure solid floor exists below
+        int floorRow = spawnTop + spawnH;
         if (floorRow < rows) {
-            for (int c = 0; c < Math.min(1 + SPAWN_ROOM_WIDTH + 1, cols); c++) {
+            for (int c = 0; c <= Math.min(SPAWN_ROOM_WIDTH + 2, cols - 1); c++) {
                 map[floorRow][c] = Constants.TILE_SOLID;
             }
         }
 
-        // Ensure solid ceiling exists above the spawn room
-        if (spawnTop > 0) {
-            for (int c = 0; c < Math.min(1 + SPAWN_ROOM_WIDTH + 1, cols); c++) {
-                // Only set ceiling if it's not part of a corridor above
-                if (map[spawnTop - 1][c] == Constants.TILE_SOLID) {
-                    // Keep it solid (it's already a ceiling/floor separator)
-                }
-            }
-        }
-
-        // Ensure the corridor opening on the right side connects to the rest of the map
-        // Clear 2 tiles wide at the right edge of the spawn room for smooth transition
-        int openingCol = 1 + SPAWN_ROOM_WIDTH;
-        for (int r = spawnTop; r < Math.min(spawnTop + CORRIDOR_HEIGHT, rows - 1); r++) {
-            if (openingCol < cols - 1) {
-                map[r][openingCol] = Constants.TILE_EMPTY;
-            }
-            if (openingCol + 1 < cols - 1) {
-                map[r][openingCol + 1] = Constants.TILE_EMPTY;
-            }
+        // Ensure corridor opening connects to the rest of the map
+        int openCol = 1 + SPAWN_ROOM_WIDTH;
+        for (int r = spawnTop; r < spawnTop + spawnH && r < rows; r++) {
+            if (openCol < cols - 1) map[r][openCol] = Constants.TILE_EMPTY;
+            if (openCol + 1 < cols - 1) map[r][openCol + 1] = Constants.TILE_EMPTY;
         }
 
         // Place player spawn marker
         map[spawnRow][spawnCol] = Constants.TILE_PLAYER_SPAWN;
     }
 
-    /**
-     * Create a clean exit room at top-right corner of the map.
-     */
-    private void createExitRoom(int[][] map, int exitTop, int exitRow, int exitCol) {
+    // ================================================================
+    // Exit Room — clean area at bottom-right
+    // ================================================================
+
+    private void createExitRoom(int[][] map, int exitTop, int exitH,
+                                 int exitRow, int exitCol) {
         int exitLeft = cols - EXIT_ROOM_WIDTH - 1;
 
-        // Clear the exit room
-        for (int r = exitTop; r < Math.min(exitTop + CORRIDOR_HEIGHT, rows - 1); r++) {
+        // Clear exit room
+        for (int r = exitTop; r < exitTop + exitH && r < rows; r++) {
             for (int c = Math.max(1, exitLeft); c < cols - 1; c++) {
                 map[r][c] = Constants.TILE_EMPTY;
             }
         }
 
-        // Ensure solid floor exists below the exit room
-        int floorRow = exitTop + CORRIDOR_HEIGHT;
+        // Ensure solid floor below
+        int floorRow = exitTop + exitH;
         if (floorRow < rows) {
             for (int c = Math.max(0, exitLeft - 1); c < cols; c++) {
                 map[floorRow][c] = Constants.TILE_SOLID;
             }
         }
 
-        // Ensure the corridor opening on the left side connects to the rest of the map
-        int openingCol = exitLeft - 1;
-        for (int r = exitTop; r < Math.min(exitTop + CORRIDOR_HEIGHT, rows - 1); r++) {
-            if (openingCol >= 1) {
-                map[r][openingCol] = Constants.TILE_EMPTY;
-            }
-            if (openingCol - 1 >= 1) {
-                map[r][openingCol - 1] = Constants.TILE_EMPTY;
-            }
+        // Ensure corridor opening connects
+        int openCol = exitLeft - 1;
+        for (int r = exitTop; r < exitTop + exitH && r < rows; r++) {
+            if (openCol >= 1) map[r][openCol] = Constants.TILE_EMPTY;
+            if (openCol - 1 >= 1) map[r][openCol - 1] = Constants.TILE_EMPTY;
         }
 
-        // Place exit marker (at bottom of corridor, on the floor)
+        // Place exit marker
         map[exitRow][exitCol] = Constants.TILE_EXIT;
     }
 
+    // ================================================================
+    // Connectivity — ensure spawn can reach exit
+    // ================================================================
+
     /**
-     * Ensure spawn can reach exit via player-height-aware flood-fill.
-     * If not reachable, add extra vertical gaps and clear horizontal blockages.
+     * Ensure the player can navigate from spawn to exit via BFS.
+     * If not reachable, add extra vertical shafts until connected.
      */
     private void ensureConnectivity(int[][] map, int spawnRow, int spawnCol,
-                                     int exitRow, int exitCol, List<Integer> corridorTops) {
-        int maxAttempts = 20;
+                                     int exitRow, int exitCol, List<int[]> corridors) {
+        // Phase 1: Try adding random extra shafts
         int attempt = 0;
-
-        // Phase 1: Try adding random vertical gaps
-        while (!isReachable(map, spawnRow, spawnCol, exitRow, exitCol) && attempt < maxAttempts) {
+        while (!isReachable(map, spawnRow, spawnCol, exitRow, exitCol) && attempt < 25) {
             attempt++;
-            if (corridorTops.size() < 2) break;
-            int ci = rng.nextInt(corridorTops.size() - 1);
-            int floorRow = corridorTops.get(ci) + CORRIDOR_HEIGHT;
-            if (floorRow >= rows - 2) continue;
+            if (corridors.size() < 2) break;
 
-            int gapCol = 4 + rng.nextInt(Math.max(1, cols - 8));
-            int gapWidth = 3 + rng.nextInt(2);
-            for (int c = gapCol; c < Math.min(gapCol + gapWidth, cols - 1); c++) {
-                map[floorRow][c] = Constants.TILE_EMPTY;
+            int ci = rng.nextInt(corridors.size() - 1);
+            int upperTop = corridors.get(ci)[0];
+            int upperH = corridors.get(ci)[1];
+            int lowerTop = corridors.get(ci + 1)[0];
+            int floorStart = upperTop + upperH;
+            int floorEnd = lowerTop - 1;
+
+            int gapCol = 3 + rng.nextInt(Math.max(1, cols - 10));
+            int gapWidth = 4 + rng.nextInt(3); // 4-6 tiles wide
+
+            for (int r = floorStart; r <= floorEnd && r < rows; r++) {
+                for (int c = gapCol; c < Math.min(gapCol + gapWidth, cols - 1); c++) {
+                    if (c > 0) map[r][c] = Constants.TILE_EMPTY;
+                }
             }
         }
 
-        // Phase 2: If still not reachable, punch small 2-tile-high holes
-        // through blockages — NOT full corridor clearing (keeps map tight)
+        // Phase 2: If still unreachable, punch through ALL floors at center
         if (!isReachable(map, spawnRow, spawnCol, exitRow, exitCol)) {
-            // Punch narrow (3-tile wide) passages at regular intervals in each corridor
-            for (int top : corridorTops) {
-                int walkRow1 = top;
-                int walkRow2 = top + 1;
-                if (walkRow2 >= rows - 1) continue;
-                // Every 10 tiles, punch a 3-tile-wide hole through any blockage
-                for (int c = 5; c < cols - 5; c += 10) {
-                    for (int dc = -1; dc <= 1; dc++) {
-                        int cc = c + dc;
-                        if (cc >= 1 && cc < cols - 1) {
-                            if (map[walkRow1][cc] == Constants.TILE_SOLID) {
-                                map[walkRow1][cc] = Constants.TILE_EMPTY;
-                            }
-                            if (map[walkRow2][cc] == Constants.TILE_SOLID) {
-                                map[walkRow2][cc] = Constants.TILE_EMPTY;
-                            }
-                        }
-                    }
-                }
-            }
-            // Ensure vertical connections with small gaps
-            for (int i = 0; i < corridorTops.size() - 1; i++) {
-                int floorRow = corridorTops.get(i) + CORRIDOR_HEIGHT;
-                if (floorRow >= rows - 1) continue;
+            for (int i = 0; i < corridors.size() - 1; i++) {
+                int upperTop = corridors.get(i)[0];
+                int upperH = corridors.get(i)[1];
+                int lowerTop = corridors.get(i + 1)[0];
+                int floorStart = upperTop + upperH;
+                int floorEnd = lowerTop - 1;
+
                 int center = cols / 2;
-                for (int c = center - 1; c <= center + 1 && c < cols - 1; c++) {
-                    if (c > 0) map[floorRow][c] = Constants.TILE_EMPTY;
+                for (int r = floorStart; r <= floorEnd && r < rows; r++) {
+                    for (int c = center - 3; c <= center + 3 && c < cols - 1; c++) {
+                        if (c > 0) map[r][c] = Constants.TILE_EMPTY;
+                    }
                 }
             }
         }
     }
 
     /**
-     * Player-height-aware BFS: a tile (r,c) is only passable if both
-     * (r,c) and (r-1,c) are non-solid (player needs 2 tiles of vertical space).
+     * Player-height-aware BFS: checks 2-tile vertical clearance at each position.
      */
-    private boolean isReachable(int[][] map, int startRow, int startCol, int endRow, int endCol) {
+    private boolean isReachable(int[][] map, int startRow, int startCol,
+                                 int endRow, int endCol) {
         boolean[][] visited = new boolean[rows][cols];
         Queue<int[]> queue = new LinkedList<>();
 
-        // Only start if the start position has 2-tile clearance
         if (startRow >= 1 && map[startRow][startCol] != Constants.TILE_SOLID
             && map[startRow - 1][startCol] != Constants.TILE_SOLID) {
             queue.add(new int[]{startRow, startCol});
@@ -387,13 +473,12 @@ public class LevelGenerator {
         return false;
     }
 
-    /**
-     * Remove isolated solid tiles that appear as stray pixels.
-     * A solid tile with 3+ non-solid orthogonal neighbors is removed.
-     * Runs multiple passes to handle cascading removals.
-     */
+    // ================================================================
+    // Cleanup — remove isolated solid tiles
+    // ================================================================
+
     private void removeStrayTiles(int[][] map) {
-        for (int pass = 0; pass < 2; pass++) {
+        for (int pass = 0; pass < 3; pass++) {
             boolean changed = false;
             for (int r = 1; r < rows - 1; r++) {
                 for (int c = 1; c < cols - 1; c++) {
@@ -413,139 +498,35 @@ public class LevelGenerator {
         }
     }
 
-    /**
-     * Add obstacles and platforms inside corridors for variety.
-     * Respects passage zones and enforces minimum feature sizes.
-     * Skips spawn room area (last corridor, first SPAWN_ROOM_WIDTH+2 cols)
-     * and exit room area (first corridor, last EXIT_ROOM_WIDTH+2 cols).
-     */
-    private void addCorridorFeatures(int[][] map, List<Integer> corridorTops, int level) {
-        for (int idx = 0; idx < corridorTops.size(); idx++) {
-            int top = corridorTops.get(idx);
-            int bottom = top + CORRIDOR_HEIGHT - 1;
-
-            // Safe zones: don't place obstacles near spawn (last corridor left)
-            // or exit (first corridor right)
-            int safeLeft = (idx == corridorTops.size() - 1) ? SPAWN_ROOM_WIDTH + 3 : 2;
-            int safeRight = (idx == 0) ? cols - EXIT_ROOM_WIDTH - 3 : cols - 2;
-
-            // --- Floor rocks (minimum 2 tiles wide, no single-tile bumps) ---
-            int rockCount = cols / 5 + level / 2;
-            for (int o = 0; o < rockCount; o++) {
-                if (safeRight - safeLeft <= 4) continue;
-                int c = safeLeft + rng.nextInt(safeRight - safeLeft - 1);
-
-                // Must have room for 2 tiles, not in passage zone
-                if (c < 1 || c + 1 >= cols - 1) continue;
-                if (passageZones[bottom][c] || passageZones[bottom][c + 1]) continue;
-
-                if (map[bottom][c] == Constants.TILE_EMPTY
-                    && map[bottom][c + 1] == Constants.TILE_EMPTY
-                    && bottom + 1 < rows
-                    && map[bottom + 1][c] == Constants.TILE_SOLID
-                    && map[bottom + 1][c + 1] == Constants.TILE_SOLID) {
-                    map[bottom][c] = Constants.TILE_SOLID;
-                    map[bottom][c + 1] = Constants.TILE_SOLID;
-                }
-            }
-
-            // --- Mid-height platforms (minimum 3 tiles wide) ---
-            // Skip first corridor (idx=0) — platforms near the ceiling create
-            // unreachable areas where gold can spawn but player can't reach
-            if (CORRIDOR_HEIGHT >= 3 && idx > 0) {
-                int midRow = top + 1;
-                int platCount = cols / 20 + rng.nextInt(2);
-                for (int p = 0; p < platCount; p++) {
-                    if (safeRight - safeLeft <= 6) continue;
-                    int pCol = safeLeft + rng.nextInt(safeRight - safeLeft - 4);
-                    int pWidth = 3 + rng.nextInt(3); // 3-5 tiles wide
-
-                    // Verify all tiles are available and not in passage zones
-                    boolean canPlace = true;
-                    for (int pc = pCol; pc < Math.min(pCol + pWidth, safeRight); pc++) {
-                        if (pc >= cols - 1 || passageZones[midRow][pc]
-                            || map[midRow][pc] != Constants.TILE_EMPTY) {
-                            canPlace = false;
-                            break;
-                        }
-                    }
-                    int actualWidth = Math.min(pWidth, safeRight - pCol);
-                    if (canPlace && actualWidth >= 3) {
-                        for (int pc = pCol; pc < pCol + actualWidth && pc < cols - 1; pc++) {
-                            map[midRow][pc] = Constants.TILE_SOLID;
-                        }
-                    }
-                }
-            }
-
-            // --- Partial walls (minimum 2 tiles wide) ---
-            int wallCount = cols / 10 + rng.nextInt(3);
-            for (int w = 0; w < wallCount; w++) {
-                if (safeRight - safeLeft <= 8) continue;
-                int wCol = safeLeft + 3 + rng.nextInt(safeRight - safeLeft - 6);
-
-                if (wCol + 1 >= cols - 1) continue;
-
-                boolean blocked = false;
-                for (int r = bottom; r > bottom - 2 && r >= top; r--) {
-                    if (passageZones[r][wCol] || passageZones[r][wCol + 1]) {
-                        blocked = true;
-                        break;
-                    }
-                }
-                if (blocked) continue;
-
-                // Wall from floor, 2 tiles high, 2 tiles wide
-                for (int r = bottom; r > bottom - 2 && r >= top; r--) {
-                    if (map[r][wCol] == Constants.TILE_EMPTY) {
-                        map[r][wCol] = Constants.TILE_SOLID;
-                    }
-                    if (map[r][wCol + 1] == Constants.TILE_EMPTY) {
-                        map[r][wCol + 1] = Constants.TILE_SOLID;
-                    }
-                }
-            }
-        }
-    }
+    // ================================================================
+    // Item Placement
+    // ================================================================
 
     /**
-     * Clear an area (ensure it's empty) for spawn/exit placement.
+     * Place gold bars on surfaces (empty tile with solid below).
+     * Skips spawn room (first corridor, left) and exit room (last corridor, right).
      */
-    private void clearArea(int[][] map, int top, int left, int height, int width) {
-        for (int r = top; r < Math.min(top + height, rows - 1); r++) {
-            for (int c = left; c < Math.min(left + width, cols - 1); c++) {
-                if (r > 0 && c > 0) {
-                    map[r][c] = Constants.TILE_EMPTY;
-                }
-            }
-        }
-    }
-
-    /**
-     * Place gold bars on surfaces (empty tile with solid below) inside corridors.
-     * Avoids spawn room and exit room areas.
-     */
-    private void placeGoldBars(int[][] map, int level, List<Integer> corridorTops) {
+    private void placeGoldBars(int[][] map, int level, List<int[]> corridors) {
         int target = 12 + level * 4 + cols / 12;
         int placed = 0;
         int attempts = 0;
 
         while (placed < target && attempts < target * 20) {
             attempts++;
-            int ci = rng.nextInt(corridorTops.size());
-            int top = corridorTops.get(ci);
-            int c = 3 + rng.nextInt(cols - 6);
+            int ci = rng.nextInt(corridors.size());
+            int top = corridors.get(ci)[0];
+            int h = corridors.get(ci)[1];
+            int c = 3 + rng.nextInt(Math.max(1, cols - 6));
 
-            // Skip first corridor (top of map) — gold there is often unreachable
-            if (ci == 0) continue;
-            // Skip spawn room area (last corridor, left side)
-            if (ci == corridorTops.size() - 1 && c <= SPAWN_ROOM_WIDTH + 1) continue;
-            // Skip exit room area (first corridor, right side)
-            if (ci == 0 && c >= cols - EXIT_ROOM_WIDTH - 2) continue;
+            // Skip spawn room (first corridor, left side)
+            if (ci == 0 && c <= SPAWN_ROOM_WIDTH + 1) continue;
+            // Skip exit room (last corridor, right side)
+            if (ci == corridors.size() - 1 && c >= cols - EXIT_ROOM_WIDTH - 2) continue;
 
-            for (int r = top + CORRIDOR_HEIGHT - 1; r >= top; r--) {
-                if (map[r][c] == Constants.TILE_EMPTY &&
-                    r + 1 < rows && map[r + 1][c] == Constants.TILE_SOLID) {
+            // Find a surface (empty above solid)
+            for (int r = top + h - 1; r >= top; r--) {
+                if (map[r][c] == Constants.TILE_EMPTY
+                    && r + 1 < rows && map[r + 1][c] == Constants.TILE_SOLID) {
                     map[r][c] = Constants.TILE_GOLD_BAR;
                     placed++;
                     break;
@@ -553,45 +534,42 @@ public class LevelGenerator {
             }
         }
 
-        // Place some floating gold (mid-air, requires jumping)
-        int floatingTarget = 3 + level * 2;
+        // Floating gold (mid-air, requires jumping)
+        int floatTarget = 3 + level * 2;
         attempts = 0;
-        while (floatingTarget > 0 && attempts < floatingTarget * 15) {
+        while (floatTarget > 0 && attempts < floatTarget * 15) {
             attempts++;
-            int ci = rng.nextInt(corridorTops.size());
-            int top = corridorTops.get(ci);
-            int r = top + rng.nextInt(CORRIDOR_HEIGHT);
-            int c = 3 + rng.nextInt(cols - 6);
+            int ci = rng.nextInt(corridors.size());
+            int top = corridors.get(ci)[0];
+            int h = corridors.get(ci)[1];
+            int r = top + rng.nextInt(h);
+            int c = 3 + rng.nextInt(Math.max(1, cols - 6));
 
-            // Skip first corridor (top of map) — gold there is often unreachable
-            if (ci == 0) continue;
-            // Skip spawn/exit rooms
-            if (ci == corridorTops.size() - 1 && c <= SPAWN_ROOM_WIDTH + 1) continue;
-            if (ci == 0 && c >= cols - EXIT_ROOM_WIDTH - 2) continue;
+            if (ci == 0 && c <= SPAWN_ROOM_WIDTH + 1) continue;
+            if (ci == corridors.size() - 1 && c >= cols - EXIT_ROOM_WIDTH - 2) continue;
 
             if (map[r][c] == Constants.TILE_EMPTY) {
                 map[r][c] = Constants.TILE_GOLD_BAR;
-                floatingTarget--;
+                floatTarget--;
                 placed++;
             }
         }
     }
 
     /**
-     * Place diamonds in harder-to-reach spots.
+     * Place diamonds in various positions inside corridors.
      */
-    private void placeDiamonds(int[][] map, int count, List<Integer> corridorTops) {
+    private void placeDiamonds(int[][] map, int count, List<int[]> corridors) {
         int placed = 0;
         int attempts = 0;
 
         while (placed < count && attempts < count * 25) {
             attempts++;
-            int ci = rng.nextInt(corridorTops.size());
-            // Skip first corridor (top of map) — often unreachable
-            if (ci == 0) continue;
-            int top = corridorTops.get(ci);
-            int r = top + rng.nextInt(CORRIDOR_HEIGHT);
-            int c = 5 + rng.nextInt(cols - 10);
+            int ci = rng.nextInt(corridors.size());
+            int top = corridors.get(ci)[0];
+            int h = corridors.get(ci)[1];
+            int r = top + rng.nextInt(h);
+            int c = 5 + rng.nextInt(Math.max(1, cols - 10));
 
             if (map[r][c] == Constants.TILE_EMPTY) {
                 map[r][c] = Constants.TILE_DIAMOND;
@@ -602,34 +580,40 @@ public class LevelGenerator {
 
     /**
      * Place enemy spawns distributed across corridors on ground surfaces.
-     * Avoids spawn room area so enemies don't spawn on top of player.
+     * Avoids spawn room and exit room.
      */
-    private void placeEnemySpawns(int[][] map, int count, List<Integer> corridorTops) {
+    private void placeEnemySpawns(int[][] map, int count, List<int[]> corridors) {
         int placed = 0;
         int sectionW = Math.max(1, (cols - 10) / Math.max(count, 1));
 
         for (int i = 0; i < count; i++) {
-            int ci = i % corridorTops.size();
-            int top = corridorTops.get(ci);
-            int baseCol = 6 + (i * sectionW) % (cols - 12);
+            int ci = i % corridors.size();
+            int top = corridors.get(ci)[0];
+            int h = corridors.get(ci)[1];
+            int baseCol = 6 + (i * sectionW) % (Math.max(1, cols - 12));
 
-            // Skip spawn room area for enemies in the last corridor
-            if (ci == corridorTops.size() - 1 && baseCol <= SPAWN_ROOM_WIDTH + 2) {
+            // Skip spawn room (first corridor, left)
+            if (ci == 0 && baseCol <= SPAWN_ROOM_WIDTH + 2) {
                 baseCol = SPAWN_ROOM_WIDTH + 3;
+            }
+            // Skip exit room (last corridor, right)
+            if (ci == corridors.size() - 1 && baseCol >= cols - EXIT_ROOM_WIDTH - 3) {
+                baseCol = Math.max(2, cols - EXIT_ROOM_WIDTH - 5);
             }
 
             int attempts = 0;
             while (attempts < 100) {
                 attempts++;
                 int c = baseCol + rng.nextInt(Math.max(1, sectionW));
-                c = Math.max(SPAWN_ROOM_WIDTH + 3, Math.min(c, cols - 4));
+                c = Math.max(2, Math.min(c, cols - 4));
 
-                // Extra safety: never spawn enemies in spawn room
-                if (ci == corridorTops.size() - 1 && c <= SPAWN_ROOM_WIDTH + 1) continue;
+                // Enforce spawn/exit room avoidance
+                if (ci == 0 && c <= SPAWN_ROOM_WIDTH + 1) continue;
+                if (ci == corridors.size() - 1 && c >= cols - EXIT_ROOM_WIDTH - 2) continue;
 
-                for (int r = top + CORRIDOR_HEIGHT - 1; r >= top; r--) {
-                    if (map[r][c] == Constants.TILE_EMPTY &&
-                        r + 1 < rows && map[r + 1][c] == Constants.TILE_SOLID) {
+                for (int r = top + h - 1; r >= top; r--) {
+                    if (map[r][c] == Constants.TILE_EMPTY
+                        && r + 1 < rows && map[r + 1][c] == Constants.TILE_SOLID) {
                         map[r][c] = Constants.TILE_ENEMY_SPAWN;
                         placed++;
                         break;

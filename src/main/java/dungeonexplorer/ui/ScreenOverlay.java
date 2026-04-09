@@ -98,9 +98,9 @@ public class ScreenOverlay {
         // Try to use the sprite image
         BufferedImage sprite = Player.getSpriteRight();
         if (sprite != null) {
-            // Draw sprite scaled up for the title screen (48x60)
-            int drawW = 48;
-            int drawH = 60;
+            // Draw sprite scaled up for the title screen (72x90)
+            int drawW = 72;
+            int drawH = 90;
             int x = cx - drawW / 2;
             int y = baseY + by - drawH / 2;
             g.setRenderingHint(RenderingHints.KEY_INTERPOLATION,

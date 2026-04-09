@@ -169,6 +169,10 @@ public class MapRenderer {
                         renderCaveBackground(g, screenX, screenY, r, c);
                         renderExit(g, screenX, screenY, map.isExitOpen());
                         break;
+                    case Constants.TILE_LADDER:
+                        renderCaveBackground(g, screenX, screenY, r, c);
+                        renderLadder(g, screenX, screenY);
+                        break;
                     default: // EMPTY, spawns, etc.
                         renderCaveBackground(g, screenX, screenY, r, c);
                         break;
@@ -426,6 +430,29 @@ public class MapRenderer {
         int hashLeft = (r * 23 + (c - 1) * 41 + 13) % 100;
         if (hashUp < 3 || hashLeft < 3) return false;
         return true;
+    }
+
+    private void renderLadder(Graphics2D g, int x, int y) {
+        int s = Constants.TILE_SIZE;
+
+        // Vertical rails
+        g.setColor(new Color(120, 80, 40));
+        g.setStroke(new BasicStroke(3));
+        int railLeft  = x + s / 4;
+        int railRight = x + s * 3 / 4;
+        g.drawLine(railLeft,  y,     railLeft,  y + s);
+        g.drawLine(railRight, y,     railRight, y + s);
+
+        // Horizontal rungs (4 evenly spaced)
+        g.setColor(new Color(160, 110, 60));
+        g.setStroke(new BasicStroke(2));
+        int rungs = 4;
+        for (int i = 0; i < rungs; i++) {
+            int ry = y + (s * (i + 1)) / (rungs + 1);
+            g.drawLine(railLeft, ry, railRight, ry);
+        }
+
+        g.setStroke(new BasicStroke(1));
     }
 
     private int clamp(int value) {

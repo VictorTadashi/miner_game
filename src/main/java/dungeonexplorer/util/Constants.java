@@ -27,22 +27,22 @@ public final class Constants {
     public static final double FRICTION = 0.8;
 
     // Player
-    public static final int PLAYER_WIDTH = 22;
-    public static final int PLAYER_HEIGHT = 30;
-    public static final int SPRITE_DRAW_WIDTH = 32;
-    public static final int SPRITE_DRAW_HEIGHT = 40;
-    public static final int WALK_ANIM_INTERVAL = 20;  // frames between walk sprite swap (~0.33s at 60FPS)
+    public static final int PLAYER_WIDTH = 30;
+    public static final int PLAYER_HEIGHT = 40;
+    public static final int SPRITE_DRAW_WIDTH = 48;
+    public static final int SPRITE_DRAW_HEIGHT = 60;
+    public static final int WALK_ANIM_INTERVAL = 25;  // frames between walk sprite swap (~0.4s at 60FPS)
     public static final int PLAYER_LIVES = 3;
     public static final int PLAYER_ATTACK_COOLDOWN = 25; // frames
     public static final int PLAYER_ATTACK_DURATION = 12; // frames attack anim lasts
-    public static final double PLAYER_ATTACK_RANGE = 36;
+    public static final double PLAYER_ATTACK_RANGE = 50;
     public static final double PLAYER_ATTACK_KNOCKBACK = 7.0;
     public static final int PLAYER_INVULN_FRAMES = 60;
 
     // Enemy
     public static final int ENEMY_HP = 3;
-    public static final int ENEMY_WIDTH = 24;
-    public static final int ENEMY_HEIGHT = 26;
+    public static final int ENEMY_WIDTH = 48;
+    public static final int ENEMY_HEIGHT = 56;
     public static final int ENEMY_INVULN_FRAMES = 20;
     public static final double ENEMY_KNOCKBACK_DECAY = 0.85;
 
@@ -94,4 +94,8 @@ public final class Constants {
     public static final int TILE_EXIT = 5;
     public static final int TILE_PLAYER_SPAWN = 6;
     public static final int TILE_ENEMY_SPAWN = 7;
+    public static final int TILE_LADDER = 8;
+
+    // Ladder climbing
+    public static final double LADDER_CLIMB_SPEED = 2.5;
 }

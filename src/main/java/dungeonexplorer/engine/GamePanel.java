@@ -14,6 +14,9 @@ import java.awt.image.BufferedImage;
 
 /**
  * Main game panel for the side-scrolling platformer.
+ * Renders the game at an internal resolution, then scales to fill the screen
+ * with pixel-perfect nearest-neighbor interpolation.
+ *
  * Handles rendering with camera viewport and continuous key input.
  */
 public class GamePanel extends JPanel implements KeyListener {
@@ -22,10 +25,10 @@ public class GamePanel extends JPanel implements KeyListener {
     private final HUD hud;
     private final ScreenOverlay overlay;
 
-    // Double buffering
+    // Internal game resolution (rendered to buffer, then scaled to screen)
     private BufferedImage buffer;
-    private int currentWidth;
-    private int currentHeight;
+    private int gameWidth;
+    private int gameHeight;
 
     public GamePanel(GameState gameState) {
         this.gameState = gameState;
@@ -33,22 +36,24 @@ public class GamePanel extends JPanel implements KeyListener {
         this.hud = new HUD();
         this.overlay = new ScreenOverlay();
 
-        this.currentWidth = Constants.VIEWPORT_WIDTH;
-        this.currentHeight = Constants.VIEWPORT_HEIGHT + Constants.HUD_HEIGHT;
+        this.gameWidth = Constants.VIEWPORT_WIDTH;
+        this.gameHeight = Constants.VIEWPORT_HEIGHT + Constants.HUD_HEIGHT;
 
-        setPreferredSize(new Dimension(currentWidth, currentHeight));
         setBackground(Color.BLACK);
         setFocusable(true);
         addKeyListener(this);
 
-        buffer = new BufferedImage(currentWidth, currentHeight, BufferedImage.TYPE_INT_ARGB);
+        buffer = new BufferedImage(gameWidth, gameHeight, BufferedImage.TYPE_INT_ARGB);
     }
 
+    /**
+     * Update internal resolution when difficulty changes.
+     * In fullscreen mode, only the internal buffer is recreated.
+     */
     public void resizeForDifficulty(Difficulty diff) {
-        currentWidth = diff.windowWidth();
-        currentHeight = diff.windowHeight();
-        setPreferredSize(new Dimension(currentWidth, currentHeight));
-        buffer = new BufferedImage(currentWidth, currentHeight, BufferedImage.TYPE_INT_ARGB);
+        gameWidth = diff.windowWidth();
+        gameHeight = diff.windowHeight();
+        buffer = new BufferedImage(gameWidth, gameHeight, BufferedImage.TYPE_INT_ARGB);
         mapRenderer = new MapRenderer();
         revalidate();
     }
@@ -62,24 +67,25 @@ public class GamePanel extends JPanel implements KeyListener {
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
 
+        // === Render game to internal buffer at game resolution ===
         Graphics2D g2 = buffer.createGraphics();
         g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
 
         // Clear
         g2.setColor(Color.BLACK);
-        g2.fillRect(0, 0, currentWidth, currentHeight);
+        g2.fillRect(0, 0, gameWidth, gameHeight);
 
         GameState.State state = gameState.getState();
 
         if (state == GameState.State.TITLE) {
-            overlay.renderTitleScreen(g2, currentWidth, currentHeight);
+            overlay.renderTitleScreen(g2, gameWidth, gameHeight);
         } else if (state == GameState.State.DIFFICULTY_SELECT) {
             overlay.renderDifficultySelect(g2, gameState.getSelectedDifficultyIndex(),
-                                           currentWidth, currentHeight);
+                                           gameWidth, gameHeight);
         } else {
             // Render HUD at top
             hud.render(g2, gameState.getPlayer(), gameState.getMap(), gameState.getLevel(),
-                       currentWidth, gameState.getDifficulty());
+                       gameWidth, gameState.getDifficulty());
 
             // Set clip for game viewport (below HUD)
             g2.setClip(0, Constants.HUD_HEIGHT, Constants.VIEWPORT_WIDTH, Constants.VIEWPORT_HEIGHT);
@@ -109,25 +115,49 @@ public class GamePanel extends JPanel implements KeyListener {
             // Overlays (full screen)
             switch (state) {
                 case GET_READY:
-                    overlay.renderGetReady(g2, gameState.getLevel(), currentWidth, currentHeight);
+                    overlay.renderGetReady(g2, gameState.getLevel(), gameWidth, gameHeight);
                     break;
                 case PAUSED:
-                    overlay.renderPause(g2, currentWidth, currentHeight);
+                    overlay.renderPause(g2, gameWidth, gameHeight);
                     break;
                 case GAME_OVER:
                     overlay.renderGameOver(g2, gameState.getPlayer().getScore(),
-                                          currentWidth, currentHeight);
+                                          gameWidth, gameHeight);
                     break;
                 case LEVEL_COMPLETE:
                     overlay.renderLevelComplete(g2, gameState.getLevel(),
                                                gameState.getPlayer().getScore(),
-                                               currentWidth, currentHeight);
+                                               gameWidth, gameHeight);
                     break;
             }
         }
 
         g2.dispose();
-        g.drawImage(buffer, 0, 0, null);
+
+        // === Scale buffer to fill screen maintaining aspect ratio ===
+        int panelW = getWidth();
+        int panelH = getHeight();
+        if (panelW <= 0 || panelH <= 0) return;
+
+        // Calculate scale factor (fit inside screen)
+        double scaleX = (double) panelW / gameWidth;
+        double scaleY = (double) panelH / gameHeight;
+        double scale = Math.min(scaleX, scaleY);
+
+        int scaledW = (int) (gameWidth * scale);
+        int scaledH = (int) (gameHeight * scale);
+        int offsetX = (panelW - scaledW) / 2;
+        int offsetY = (panelH - scaledH) / 2;
+
+        // Black background for letterboxing
+        Graphics2D screenG = (Graphics2D) g;
+        screenG.setColor(Color.BLACK);
+        screenG.fillRect(0, 0, panelW, panelH);
+
+        // Draw scaled game with nearest-neighbor (pixel-perfect for pixel art)
+        screenG.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                                  RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR);
+        screenG.drawImage(buffer, offsetX, offsetY, scaledW, scaledH, null);
     }
 
     @Override
@@ -139,6 +169,8 @@ public class GamePanel extends JPanel implements KeyListener {
             case TITLE:
                 if (key == KeyEvent.VK_ENTER || key == KeyEvent.VK_SPACE) {
                     gameState.startGame();
+                } else if (key == KeyEvent.VK_ESCAPE) {
+                    System.exit(0);
                 }
                 break;
 
@@ -173,6 +205,8 @@ public class GamePanel extends JPanel implements KeyListener {
             case GAME_OVER:
                 if (key == KeyEvent.VK_ENTER || key == KeyEvent.VK_SPACE) {
                     gameState.restartGame();
+                } else if (key == KeyEvent.VK_ESCAPE) {
+                    System.exit(0);
                 }
                 break;
 
@@ -198,9 +232,15 @@ public class GamePanel extends JPanel implements KeyListener {
                 player.setMoveRight(true);
                 break;
             case KeyEvent.VK_SPACE:
+                player.setJumpPressed(true);
+                break;
             case KeyEvent.VK_W:
             case KeyEvent.VK_UP:
-                player.setJumpPressed(true);
+                player.setClimbUp(true);
+                break;
+            case KeyEvent.VK_DOWN:
+            case KeyEvent.VK_S:
+                player.setClimbDown(true);
                 break;
             case KeyEvent.VK_Z:
             case KeyEvent.VK_J:
@@ -208,6 +248,7 @@ public class GamePanel extends JPanel implements KeyListener {
                 player.startAttack();
                 break;
             case KeyEvent.VK_P:
+            case KeyEvent.VK_ESCAPE:
                 gameState.setState(GameState.State.PAUSED);
                 break;
             case KeyEvent.VK_R:
@@ -232,9 +273,15 @@ public class GamePanel extends JPanel implements KeyListener {
                 player.setMoveRight(false);
                 break;
             case KeyEvent.VK_SPACE:
+                player.setJumpPressed(false);
+                break;
             case KeyEvent.VK_W:
             case KeyEvent.VK_UP:
-                player.setJumpPressed(false);
+                player.setClimbUp(false);
+                break;
+            case KeyEvent.VK_DOWN:
+            case KeyEvent.VK_S:
+                player.setClimbDown(false);
                 break;
         }
     }

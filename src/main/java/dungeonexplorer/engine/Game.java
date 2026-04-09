@@ -6,8 +6,8 @@ import javax.swing.*;
 import java.awt.*;
 
 /**
- * Main game class - creates window and runs the game loop.
- * Handles window resizing when difficulty changes.
+ * Main game class - creates fullscreen window and runs the game loop.
+ * The game renders at an internal resolution and scales to fill the screen.
  */
 public class Game {
     private JFrame frame;
@@ -21,10 +21,11 @@ public class Game {
 
         frame = new JFrame("Cave Miner");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setResizable(false);
+        frame.setUndecorated(true);
         frame.add(panel);
-        frame.pack();
-        frame.setLocationRelativeTo(null);
+
+        // Fullscreen: borderless maximized window
+        frame.setExtendedState(JFrame.MAXIMIZED_BOTH);
     }
 
     public void start() {
@@ -53,9 +54,9 @@ public class Game {
                 gameState.update();
                 panel.updateRenderers();
 
-                // Check if difficulty changed and resize window
+                // Check if difficulty changed
                 if (gameState.consumeDifficultyChanged()) {
-                    SwingUtilities.invokeLater(this::resizeWindow);
+                    SwingUtilities.invokeLater(this::onDifficultyChanged);
                 }
 
                 accumulator -= Constants.FRAME_TIME_NS;
@@ -77,11 +78,13 @@ public class Game {
         }
     }
 
-    private void resizeWindow() {
+    /**
+     * Called when difficulty changes. In fullscreen mode we just
+     * refresh the internal buffer — no window resize needed.
+     */
+    private void onDifficultyChanged() {
         Difficulty diff = gameState.getDifficulty();
         panel.resizeForDifficulty(diff);
-        frame.pack();
-        frame.setLocationRelativeTo(null);
         panel.requestFocusInWindow();
     }
 }
